@@ -1,0 +1,221 @@
+{
+  "repo_url": "https://github.com/astral-demo/cosmic-weather-api",
+  "repo_name": "cosmic-weather-api",
+  "branch": "main",
+  "commit_sha": "a1b2c3d4e5f6789012345678abcdef0123456789",
+  "generated_at": "2026-10-21T07:00:00Z",
+  "nodes": [
+    {
+      "id": "dir::src",
+      "label": "src",
+      "type": "directory",
+      "language": null,
+      "path": "src",
+      "metrics": { "loc": 0, "centrality": 0.05, "complexity": 0.0 },
+      "position_hint": { "cluster_id": 0, "depth": 0 },
+      "ai_summary": "Root source directory containing the main application code."
+    },
+    {
+      "id": "dir::src/api",
+      "label": "api",
+      "type": "directory",
+      "language": null,
+      "path": "src/api",
+      "metrics": { "loc": 0, "centrality": 0.08, "complexity": 0.0 },
+      "position_hint": { "cluster_id": 1, "depth": 1 },
+      "ai_summary": "HTTP API layer handling incoming requests and routing."
+    },
+    {
+      "id": "dir::src/services",
+      "label": "services",
+      "type": "directory",
+      "language": null,
+      "path": "src/services",
+      "metrics": { "loc": 0, "centrality": 0.07, "complexity": 0.0 },
+      "position_hint": { "cluster_id": 2, "depth": 1 },
+      "ai_summary": "Business logic services for data processing and external integrations."
+    },
+    {
+      "id": "dir::src/models",
+      "label": "models",
+      "type": "directory",
+      "language": null,
+      "path": "src/models",
+      "metrics": { "loc": 0, "centrality": 0.04, "complexity": 0.0 },
+      "position_hint": { "cluster_id": 3, "depth": 1 },
+      "ai_summary": "Data models and database schema definitions."
+    },
+    {
+      "id": "file::src/main.py",
+      "label": "main.py",
+      "type": "file",
+      "language": "python",
+      "path": "src/main.py",
+      "metrics": { "loc": 45, "centrality": 0.92, "complexity": 3.2 },
+      "position_hint": { "cluster_id": 0, "depth": 1 },
+      "ai_summary": "Application entry point — initializes the FastAPI app, registers routers, and configures middleware."
+    },
+    {
+      "id": "file::src/api/routes.py",
+      "label": "routes.py",
+      "type": "file",
+      "language": "python",
+      "path": "src/api/routes.py",
+      "metrics": { "loc": 78, "centrality": 0.75, "complexity": 5.1 },
+      "position_hint": { "cluster_id": 1, "depth": 2 },
+      "ai_summary": "Defines all REST endpoints for weather data retrieval and city search."
+    },
+    {
+      "id": "file::src/api/middleware.py",
+      "label": "middleware.py",
+      "type": "file",
+      "language": "python",
+      "path": "src/api/middleware.py",
+      "metrics": { "loc": 32, "centrality": 0.41, "complexity": 2.0 },
+      "position_hint": { "cluster_id": 1, "depth": 2 },
+      "ai_summary": "Request logging, rate limiting, and authentication middleware."
+    },
+    {
+      "id": "file::src/services/weather.py",
+      "label": "weather.py",
+      "type": "file",
+      "language": "python",
+      "path": "src/services/weather.py",
+      "metrics": { "loc": 120, "centrality": 0.88, "complexity": 8.5 },
+      "position_hint": { "cluster_id": 2, "depth": 2 },
+      "ai_summary": "Core weather service — fetches data from external APIs, caches results, and normalizes temperature units."
+    },
+    {
+      "id": "file::src/services/geocoder.py",
+      "label": "geocoder.py",
+      "type": "file",
+      "language": "python",
+      "path": "src/services/geocoder.py",
+      "metrics": { "loc": 55, "centrality": 0.52, "complexity": 4.0 },
+      "position_hint": { "cluster_id": 2, "depth": 2 },
+      "ai_summary": "Resolves city names to geographic coordinates using a geocoding API."
+    },
+    {
+      "id": "file::src/services/cache.py",
+      "label": "cache.py",
+      "type": "file",
+      "language": "python",
+      "path": "src/services/cache.py",
+      "metrics": { "loc": 40, "centrality": 0.35, "complexity": 2.5 },
+      "position_hint": { "cluster_id": 2, "depth": 2 },
+      "ai_summary": "Redis-backed caching layer with TTL-based expiry for weather responses."
+    },
+    {
+      "id": "file::src/models/weather_data.py",
+      "label": "weather_data.py",
+      "type": "file",
+      "language": "python",
+      "path": "src/models/weather_data.py",
+      "metrics": { "loc": 60, "centrality": 0.62, "complexity": 1.5 },
+      "position_hint": { "cluster_id": 3, "depth": 2 },
+      "ai_summary": "Pydantic models for weather forecasts, current conditions, and historical data."
+    },
+    {
+      "id": "file::src/models/city.py",
+      "label": "city.py",
+      "type": "file",
+      "language": "python",
+      "path": "src/models/city.py",
+      "metrics": { "loc": 28, "centrality": 0.30, "complexity": 1.0 },
+      "position_hint": { "cluster_id": 3, "depth": 2 },
+      "ai_summary": "City data model with coordinates, timezone, and population metadata."
+    },
+    {
+      "id": "file::src/config.py",
+      "label": "config.py",
+      "type": "file",
+      "language": "python",
+      "path": "src/config.py",
+      "metrics": { "loc": 22, "centrality": 0.48, "complexity": 1.0 },
+      "position_hint": { "cluster_id": 0, "depth": 1 },
+      "ai_summary": "Environment-based settings for API keys, database URLs, and feature flags."
+    },
+    {
+      "id": "func::src/services/weather.py::fetch_forecast",
+      "label": "fetch_forecast()",
+      "type": "function",
+      "language": "python",
+      "path": "src/services/weather.py",
+      "metrics": { "loc": 35, "centrality": 0.85, "complexity": 6.0 },
+      "position_hint": { "cluster_id": 2, "depth": 3 },
+      "ai_summary": "Fetches a 7-day weather forecast for given coordinates, with retry logic and cache-aside."
+    },
+    {
+      "id": "class::src/models/weather_data.py::WeatherForecast",
+      "label": "WeatherForecast",
+      "type": "class",
+      "language": "python",
+      "path": "src/models/weather_data.py",
+      "metrics": { "loc": 25, "centrality": 0.55, "complexity": 1.2 },
+      "position_hint": { "cluster_id": 3, "depth": 3 },
+      "ai_summary": "Structured representation of a multi-day weather forecast with temperature ranges and precipitation."
+    }
+  ],
+  "edges": [
+    { "id": "e-01", "source": "dir::src", "target": "dir::src/api", "relation": "contains", "weight": 1.0 },
+    { "id": "e-02", "source": "dir::src", "target": "dir::src/services", "relation": "contains", "weight": 1.0 },
+    { "id": "e-03", "source": "dir::src", "target": "dir::src/models", "relation": "contains", "weight": 1.0 },
+    { "id": "e-04", "source": "dir::src", "target": "file::src/main.py", "relation": "contains", "weight": 1.0 },
+    { "id": "e-05", "source": "dir::src", "target": "file::src/config.py", "relation": "contains", "weight": 1.0 },
+    { "id": "e-06", "source": "dir::src/api", "target": "file::src/api/routes.py", "relation": "contains", "weight": 1.0 },
+    { "id": "e-07", "source": "dir::src/api", "target": "file::src/api/middleware.py", "relation": "contains", "weight": 1.0 },
+    { "id": "e-08", "source": "dir::src/services", "target": "file::src/services/weather.py", "relation": "contains", "weight": 1.0 },
+    { "id": "e-09", "source": "dir::src/services", "target": "file::src/services/geocoder.py", "relation": "contains", "weight": 1.0 },
+    { "id": "e-10", "source": "dir::src/services", "target": "file::src/services/cache.py", "relation": "contains", "weight": 1.0 },
+    { "id": "e-11", "source": "dir::src/models", "target": "file::src/models/weather_data.py", "relation": "contains", "weight": 1.0 },
+    { "id": "e-12", "source": "dir::src/models", "target": "file::src/models/city.py", "relation": "contains", "weight": 1.0 },
+    { "id": "e-13", "source": "file::src/main.py", "target": "file::src/api/routes.py", "relation": "imports", "weight": 0.9 },
+    { "id": "e-14", "source": "file::src/main.py", "target": "file::src/api/middleware.py", "relation": "imports", "weight": 0.7 },
+    { "id": "e-15", "source": "file::src/main.py", "target": "file::src/config.py", "relation": "imports", "weight": 0.8 },
+    { "id": "e-16", "source": "file::src/api/routes.py", "target": "file::src/services/weather.py", "relation": "imports", "weight": 0.95 },
+    { "id": "e-17", "source": "file::src/api/routes.py", "target": "file::src/services/geocoder.py", "relation": "imports", "weight": 0.6 },
+    { "id": "e-18", "source": "file::src/api/routes.py", "target": "file::src/models/weather_data.py", "relation": "imports", "weight": 0.85 },
+    { "id": "e-19", "source": "file::src/services/weather.py", "target": "file::src/services/cache.py", "relation": "imports", "weight": 0.7 },
+    { "id": "e-20", "source": "file::src/services/weather.py", "target": "file::src/models/weather_data.py", "relation": "imports", "weight": 0.9 },
+    { "id": "e-21", "source": "file::src/services/weather.py", "target": "func::src/services/weather.py::fetch_forecast", "relation": "contains", "weight": 1.0 },
+    { "id": "e-22", "source": "file::src/models/weather_data.py", "target": "class::src/models/weather_data.py::WeatherForecast", "relation": "contains", "weight": 1.0 },
+    { "id": "e-23", "source": "func::src/services/weather.py::fetch_forecast", "target": "class::src/models/weather_data.py::WeatherForecast", "relation": "calls", "weight": 0.8 },
+    { "id": "e-24", "source": "file::src/services/geocoder.py", "target": "file::src/models/city.py", "relation": "imports", "weight": 0.65 }
+  ],
+  "workflows": [
+    {
+      "id": "wf-weather-request",
+      "name": "Weather Forecast Request",
+      "description": "User requests a weather forecast: the API route geocodes the city, fetches weather data (with caching), and returns a structured forecast.",
+      "ordered_node_ids": [
+        "file::src/main.py",
+        "file::src/api/routes.py",
+        "file::src/services/geocoder.py",
+        "file::src/services/weather.py",
+        "func::src/services/weather.py::fetch_forecast",
+        "file::src/services/cache.py",
+        "class::src/models/weather_data.py::WeatherForecast"
+      ],
+      "edge_ids": ["e-13", "e-17", "e-16", "e-21", "e-19", "e-23"]
+    },
+    {
+      "id": "wf-app-startup",
+      "name": "Application Startup",
+      "description": "Server boot sequence: main.py loads config, registers middleware, and mounts API routes.",
+      "ordered_node_ids": [
+        "file::src/main.py",
+        "file::src/config.py",
+        "file::src/api/middleware.py",
+        "file::src/api/routes.py"
+      ],
+      "edge_ids": ["e-15", "e-14", "e-13"]
+    }
+  ],
+  "metadata": {
+    "total_files": 9,
+    "total_functions": 1,
+    "total_classes": 1,
+    "languages": ["python"],
+    "analysis_duration_ms": 142.7
+  }
+}

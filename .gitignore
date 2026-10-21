@@ -1,0 +1,88 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Coverage & Caches
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+
+# Environments & Secrets
+.env
+.env.local
+.env.*.local
+*.env
+# Ensure environment templates remain tracked
+!.env.example
+!backend/.env.example
+
+# Databases & Runtime Storage
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Application Data & Downloaded Repositories
+data/
+backend/data/
+# Whitelist bundled static data fixtures needed by app & tests
+!backend/app/data/
+!backend/app/data/**
+
+# Temporary Directories & Working Clones
+tmp/
+clones/
+temp/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node / Frontend (Future & build artifacts)
+node_modules/
+.next/
+out/
+.turbo/
+
+# Operating System
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
