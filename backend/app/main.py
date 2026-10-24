@@ -58,3 +58,14 @@ async def root_redirect():
 
     return RedirectResponse(url="/docs")
 
+
+# Mount built frontend at /app when available
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/app", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")
+
+
+

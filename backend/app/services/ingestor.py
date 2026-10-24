@@ -204,14 +204,32 @@ async def ingest_repository(
     clone_dir = Path(tempfile.mkdtemp(prefix=f"{repo_name}_", dir=str(base_dir)))
 
     try:
-        # Shallow clone
-        git_repo = GitRepo.clone_from(
-            repo_url,
-            str(clone_dir),
-            branch=branch,
-            depth=1,
-            single_branch=True,
-        )
+        # Shallow clone with branch fallback
+        try:
+            git_repo = GitRepo.clone_from(
+                repo_url,
+                str(clone_dir),
+                branch=branch,
+                depth=1,
+                single_branch=True,
+            )
+        except Exception as branch_err:
+            logger.info(
+                "Shallow clone with branch '%s' failed (%s); attempting clone of default branch",
+                branch,
+                branch_err,
+            )
+            cleanup_clone(clone_dir)
+            clone_dir.mkdir(parents=True, exist_ok=True)
+            git_repo = GitRepo.clone_from(
+                repo_url,
+                str(clone_dir),
+                depth=1,
+            )
+            try:
+                branch = str(git_repo.active_branch.name)
+            except Exception:
+                branch = "HEAD"
 
         # Get HEAD commit SHA
         commit_sha = str(git_repo.head.commit.hexsha)

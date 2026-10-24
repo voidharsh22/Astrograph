@@ -83,6 +83,10 @@ async def analyze_repository(request: RepoAnalyzeRequest) -> AstralGraph:
         # Step 2: Build graph
         graph = await build_graph(repo_data, include_ai=request.include_ai_summary)
 
+        from app.services.graph_store import GraphStore, set_active_graph_store
+
+        set_active_graph_store(GraphStore(graph))
+
         logger.info(
             "Built graph: %d nodes, %d edges (%.1fms)",
             len(graph.nodes),
