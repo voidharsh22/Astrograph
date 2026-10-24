@@ -1,0 +1,817 @@
+/* ==========================================================================
+   ASTROGRAPH - ABOUT US PAGE STYLES
+   Exact pixel match to reference image with generous, unclustered spacing
+   ========================================================================== */
+
+.about-page {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  background-color: #030611;
+  color: #fff7ed;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+  padding-bottom: 7rem;
+}
+
+/* Atmospheric Background Glows */
+.about-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.about-planet-horizon {
+  position: absolute;
+  top: -12%;
+  right: -22%;
+  width: 1350px;
+  height: 1350px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 25% 25%, #192338 0%, #0a1122 40%, #030611 75%);
+  box-shadow: 
+    -25px 25px 120px -15px rgba(251, 146, 60, 0.55),
+    -6px 6px 40px rgba(253, 186, 116, 0.9),
+    inset -40px 40px 120px rgba(0, 0, 0, 0.95);
+  opacity: 0.9;
+}
+
+.about-planet-horizon-secondary {
+  position: absolute;
+  top: 45%;
+  left: -20%;
+  width: 900px;
+  height: 900px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 75% 25%, #141c2e 0%, #050814 65%);
+  box-shadow: 
+    20px 20px 100px -20px rgba(251, 146, 60, 0.25),
+    inset 30px 30px 90px rgba(0, 0, 0, 0.9);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.about-bottom-horizon {
+  position: absolute;
+  bottom: -40%;
+  left: 10%;
+  width: 1400px;
+  height: 850px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 15%, #1b253b 0%, #030611 70%);
+  box-shadow: 0 -20px 110px -10px rgba(251, 146, 60, 0.65);
+  opacity: 0.85;
+}
+
+/* Main Container: Generous Margins & Ample Breathing Room */
+.about-container {
+  position: relative;
+  z-index: 10;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 clamp(1.5rem, 4vw, 3.5rem);
+  display: flex;
+  flex-direction: column;
+  gap: 5.5rem; /* Spacious, unclustered layout */
+}
+
+/* ==========================================================================
+   HERO SECTION
+   ========================================================================== */
+.about-hero {
+  display: grid;
+  grid-template-columns: 1.15fr 1.05fr;
+  gap: 3.5rem;
+  align-items: center;
+  padding-top: 2rem;
+}
+
+.about-hero-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.about-eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #fb923c;
+  display: inline-block;
+}
+
+.about-hero-title {
+  font-size: clamp(2.5rem, 4.2vw, 3.8rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
+  color: #fff7ed;
+  margin: 0;
+}
+
+.about-hero-title em {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+  color: #fb923c;
+  display: block;
+}
+
+.about-hero-sub {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: #9ca3af;
+  max-width: 520px;
+  margin: 0;
+}
+
+.about-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  margin-top: 0.75rem;
+}
+
+.btn-primary-orange {
+  padding: 0.85rem 1.85rem;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #fb923c 0%, #f59e0b 100%);
+  color: #0c111d;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 20px rgba(251, 146, 60, 0.35);
+}
+
+.btn-primary-orange:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 28px rgba(251, 146, 60, 0.5);
+  color: #000;
+}
+
+.btn-secondary-glass {
+  padding: 0.85rem 1.85rem;
+  border-radius: 9999px;
+  background: rgba(255, 247, 237, 0.05);
+  border: 1px solid rgba(255, 247, 237, 0.16);
+  color: #fff7ed;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  text-decoration: none;
+}
+
+.btn-secondary-glass:hover {
+  background: rgba(251, 146, 60, 0.15);
+  border-color: rgba(251, 146, 60, 0.7);
+  color: #fb923c;
+  transform: translateX(2px);
+  box-shadow: 0 0 25px rgba(251, 146, 60, 0.2);
+}
+
+/* Hero Right Preview Frame */
+.about-hero-preview {
+  border-radius: 20px;
+  background: rgba(13, 20, 36, 0.82);
+  border: 1px solid rgba(251, 146, 60, 0.25);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  padding: 1.25rem;
+  box-shadow: 
+    0 25px 60px -15px rgba(0, 0, 0, 0.85), 
+    0 0 45px rgba(251, 146, 60, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.about-preview-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 247, 237, 0.08);
+  padding-bottom: 0.65rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+.about-preview-grid {
+  display: grid;
+  grid-template-columns: 0.8fr 1.4fr 1fr;
+  gap: 0.75rem;
+  min-height: 230px;
+}
+
+.preview-pane {
+  background: #090e1a;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 247, 237, 0.06);
+  padding: 0.75rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+}
+
+/* ==========================================================================
+   SECTION 01: OUR MISSION
+   ========================================================================== */
+.about-mission-section {
+  display: grid;
+  grid-template-columns: 1fr 1.1fr 1fr;
+  gap: 2.75rem;
+  align-items: center;
+  padding: 3rem 2.5rem;
+  border-radius: 24px;
+  background: rgba(13, 20, 36, 0.7);
+  border: 1px solid rgba(255, 247, 237, 0.08);
+  backdrop-filter: blur(20px);
+}
+
+.mission-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.section-num-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #fb923c;
+  text-transform: uppercase;
+}
+
+.section-title {
+  font-size: clamp(1.6rem, 2.3vw, 2.1rem);
+  font-weight: 700;
+  line-height: 1.18;
+  letter-spacing: -0.025em;
+  color: #fff7ed;
+  margin: 0;
+}
+
+.section-title em {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+  color: #fb923c;
+}
+
+.mission-mid {
+  font-size: 0.92rem;
+  line-height: 1.7;
+  color: #9ca3af;
+}
+
+.mission-pillars {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.pillar-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.pillar-icon-box {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(251, 146, 60, 0.12);
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fb923c;
+  shrink: 0;
+}
+
+.pillar-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #fff7ed;
+  margin: 0 0 0.2rem 0;
+}
+
+.pillar-desc {
+  font-size: 0.78rem;
+  color: #9ca3af;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* ==========================================================================
+   SECTION 02: THE PROBLEM
+   ========================================================================== */
+.about-problem-section {
+  display: grid;
+  grid-template-columns: 1fr 1.25fr 0.95fr;
+  gap: 2.75rem;
+  align-items: center;
+  padding: 3rem 2.5rem;
+  border-radius: 24px;
+  background: rgba(13, 20, 36, 0.7);
+  border: 1px solid rgba(255, 247, 237, 0.08);
+  backdrop-filter: blur(20px);
+}
+
+.problem-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.problem-desc {
+  font-size: 0.92rem;
+  line-height: 1.65;
+  color: #9ca3af;
+  margin: 0;
+}
+
+.problem-cards-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.problem-card {
+  padding: 1.15rem 1.35rem;
+  border-radius: 14px;
+  background: #090e1a;
+  border: 1px solid rgba(255, 247, 237, 0.07);
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  transition: all 0.25s ease;
+}
+
+.problem-card:hover {
+  border-color: rgba(251, 146, 60, 0.35);
+  box-shadow: 0 10px 25px -10px rgba(0, 0, 0, 0.5);
+}
+
+.problem-icon-circle {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(251, 146, 60, 0.1);
+  border: 1px solid rgba(251, 146, 60, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fb923c;
+  flex-shrink: 0;
+}
+
+.problem-card-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #fff7ed;
+  margin: 0 0 0.2rem 0;
+}
+
+.problem-card-desc {
+  font-size: 0.78rem;
+  color: #9ca3af;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.problem-mockup-pane {
+  background: #080c16;
+  border-radius: 16px;
+  border: 1px solid rgba(251, 146, 60, 0.2);
+  padding: 1rem;
+  position: relative;
+  overflow: hidden;
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.8);
+}
+
+/* ==========================================================================
+   SECTION 03: OUR APPROACH
+   ========================================================================== */
+.about-approach-section {
+  display: grid;
+  grid-template-columns: 1fr 2.1fr;
+  gap: 3rem;
+  align-items: center;
+  padding: 3rem 2.5rem;
+  border-radius: 24px;
+  background: rgba(13, 20, 36, 0.7);
+  border: 1px solid rgba(255, 247, 237, 0.08);
+  backdrop-filter: blur(20px);
+}
+
+.approach-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.approach-steps-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.25rem;
+}
+
+.approach-step-card {
+  padding: 1.35rem 1.15rem;
+  border-radius: 16px;
+  background: #090e1a;
+  border: 1px solid rgba(255, 247, 237, 0.07);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.85rem;
+  transition: all 0.25s ease;
+}
+
+.approach-step-card:hover {
+  border-color: rgba(251, 146, 60, 0.35);
+  transform: translateY(-3px);
+  box-shadow: 0 15px 30px -10px rgba(0, 0, 0, 0.6);
+}
+
+.approach-icon-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(251, 146, 60, 0.12);
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fb923c;
+}
+
+.approach-step-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #fff7ed;
+  margin: 0;
+}
+
+.approach-step-desc {
+  font-size: 0.76rem;
+  color: #9ca3af;
+  margin: 0;
+  line-height: 1.45;
+}
+
+/* ==========================================================================
+   SECTION 04: TECHNOLOGY STACK
+   ========================================================================== */
+.about-tech-section {
+  display: grid;
+  grid-template-columns: 1fr 2.1fr;
+  gap: 3rem;
+  align-items: center;
+  padding: 3rem 2.5rem;
+  border-radius: 24px;
+  background: rgba(13, 20, 36, 0.7);
+  border: 1px solid rgba(255, 247, 237, 0.08);
+  backdrop-filter: blur(20px);
+}
+
+.tech-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.tech-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1rem;
+}
+
+.tech-card {
+  padding: 1.15rem 0.85rem;
+  border-radius: 14px;
+  background: #090e1a;
+  border: 1px solid rgba(255, 247, 237, 0.07);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.5rem;
+  transition: all 0.25s ease;
+}
+
+.tech-card:hover {
+  border-color: rgba(251, 146, 60, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -10px rgba(0, 0, 0, 0.6);
+}
+
+.tech-icon-wrapper {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tech-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #fff7ed;
+  margin: 0;
+}
+
+.tech-category {
+  font-size: 0.68rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: #9ca3af;
+  margin: 0;
+}
+
+/* ==========================================================================
+   SECTION 05: OUR TEAM
+   ========================================================================== */
+.about-team-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+  padding: 3.5rem 2.5rem;
+  border-radius: 24px;
+  background: rgba(13, 20, 36, 0.7);
+  border: 1px solid rgba(255, 247, 237, 0.08);
+  backdrop-filter: blur(20px);
+}
+
+.team-header-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.team-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+}
+
+.team-member-card {
+  padding: 2.25rem 1.75rem;
+  border-radius: 20px;
+  background: #090e1a;
+  border: 1px solid rgba(255, 247, 237, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.25rem;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.team-member-card:hover {
+  border-color: rgba(251, 146, 60, 0.4);
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.8), 0 0 30px rgba(251, 146, 60, 0.12);
+}
+
+/* Celestial Avatar Orbs */
+.celestial-orb {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.orb-namish {
+  background: radial-gradient(circle at 35% 30%, #fff7ed 0%, #fb923c 45%, #c2410c 80%, #7c2d12 100%);
+  box-shadow: 
+    0 0 40px rgba(251, 146, 60, 0.65),
+    inset -5px -5px 15px rgba(0, 0, 0, 0.75);
+}
+
+.orb-shashwat {
+  background: radial-gradient(circle at 35% 30%, #e0f2fe 0%, #38bdf8 45%, #0284c7 80%, #0c4a6e 100%);
+  box-shadow: 
+    0 0 40px rgba(56, 189, 248, 0.65),
+    inset -5px -5px 15px rgba(0, 0, 0, 0.75);
+}
+
+.orb-harsh {
+  background: radial-gradient(circle at 35% 30%, #fae8ff 0%, #c084fc 45%, #9333ea 80%, #581c87 100%);
+  box-shadow: 
+    0 0 40px rgba(192, 132, 252, 0.65),
+    inset -5px -5px 15px rgba(0, 0, 0, 0.75);
+}
+
+.member-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.member-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #fff7ed;
+  margin: 0;
+}
+
+.member-reg {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  margin: 0;
+}
+
+.member-role {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #fb923c;
+  margin: 0.2rem 0 0 0;
+}
+
+.member-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.45rem;
+  border-top: 1px solid rgba(255, 247, 237, 0.08);
+  padding-top: 1rem;
+  width: 100%;
+}
+
+.member-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: #d1d5db;
+  background: rgba(255, 247, 237, 0.05);
+  border: 1px solid rgba(255, 247, 237, 0.1);
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+}
+
+/* ==========================================================================
+   SECTION 06: HACKATHON
+   ========================================================================== */
+.about-hackathon-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 2.75rem;
+  align-items: center;
+  padding: 3rem 2.5rem;
+  border-radius: 24px;
+  background: rgba(13, 20, 36, 0.7);
+  border: 1px solid rgba(255, 247, 237, 0.08);
+  backdrop-filter: blur(20px);
+}
+
+.hackathon-left {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.hackathon-logo-card {
+  background: #080c16;
+  border-radius: 18px;
+  border: 1px solid rgba(251, 146, 60, 0.25);
+  padding: 2rem 1.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.7), 0 0 30px rgba(251, 146, 60, 0.1);
+}
+
+.code-sangam-brand {
+  display: flex;
+  align-items: center;
+  gap: 1.15rem;
+}
+
+.cs-symbol {
+  width: 52px;
+  height: 52px;
+}
+
+.cs-text-group {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.cs-word-code {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #fff7ed;
+}
+
+.cs-word-sangam {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #fb923c;
+}
+
+.hackathon-right {
+  font-size: 0.92rem;
+  line-height: 1.7;
+  color: #9ca3af;
+}
+
+/* ==========================================================================
+   BOTTOM CALLOUT SECTION (Back to Home button only per instructions)
+   ========================================================================== */
+.about-bottom-callout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.65rem;
+  padding: 6rem 1.5rem 3rem;
+  position: relative;
+  z-index: 10;
+}
+
+.callout-title {
+  font-size: clamp(2.2rem, 3.8vw, 3rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #fff7ed;
+  margin: 0;
+}
+
+.callout-sub {
+  font-size: 1rem;
+  color: #9ca3af;
+  margin: 0;
+  max-width: 540px;
+  line-height: 1.6;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .about-hero {
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+  }
+  .about-mission-section,
+  .about-problem-section,
+  .about-hackathon-section {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  .about-approach-section,
+  .about-tech-section {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+  .approach-steps-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .tech-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .team-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  .about-container {
+    gap: 4rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .tech-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .approach-steps-grid {
+    grid-template-columns: 1fr;
+  }
+  .about-preview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

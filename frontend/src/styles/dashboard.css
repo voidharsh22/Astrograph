@@ -1,0 +1,1113 @@
+/* ==========================================================================
+   ASTROGRAPH - AUTHENTICATED REPOSITORY DASHBOARD STYLES
+   Pixel-perfect match to master prompt & reference image 2
+   ========================================================================== */
+
+:root {
+  --dash-bg: #030611;
+  --dash-panel: rgba(13, 20, 36, 0.72);
+  --dash-border: rgba(255, 247, 237, 0.08);
+  --dash-border-hover: rgba(251, 146, 60, 0.35);
+  --orange-core: #fb923c;
+  --orange-glow: rgba(251, 146, 60, 0.25);
+  --peach-tone: #fdba74;
+  --cream-txt: #fff7ed;
+  --muted-txt: #9ca3af;
+  --green-online: #10b981;
+  --blue-indexing: #38bdf8;
+}
+
+.dash-layout {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  background-color: #02040a;
+  color: var(--cream-txt);
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==========================================================================
+   WHOLE SCREEN GALAXY COSMOS BACKDROP (Pixel match to Image 2)
+   ========================================================================== */
+.galaxy-cosmos-wrapper {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.galaxy-deep-space {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at 45% 25%,
+    #0e162a 0%,
+    #060b17 40%,
+    #02040a 80%
+  );
+}
+
+.galaxy-stars-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Volumetric Warm Sunset Nebula Clouds */
+.galaxy-nebula-amber {
+  position: absolute;
+  top: 5%;
+  right: 15%;
+  width: 800px;
+  height: 600px;
+  background: radial-gradient(
+    circle,
+    rgba(251, 146, 60, 0.14) 0%,
+    rgba(245, 158, 11, 0.05) 50%,
+    transparent 75%
+  );
+  filter: blur(80px);
+  pointer-events: none;
+}
+
+.galaxy-nebula-center {
+  position: absolute;
+  top: 15%;
+  left: 28%;
+  width: 650px;
+  height: 500px;
+  background: radial-gradient(
+    circle,
+    rgba(251, 146, 60, 0.16) 0%,
+    rgba(253, 186, 116, 0.06) 45%,
+    transparent 70%
+  );
+  filter: blur(60px);
+  pointer-events: none;
+}
+
+.galaxy-nebula-bottom {
+  position: absolute;
+  bottom: -10%;
+  left: -5%;
+  width: 750px;
+  height: 650px;
+  background: radial-gradient(
+    circle,
+    rgba(251, 146, 60, 0.18) 0%,
+    rgba(234, 88, 12, 0.08) 50%,
+    transparent 75%
+  );
+  filter: blur(75px);
+  pointer-events: none;
+}
+
+/* Massive Illuminated Ringed Planet at Bottom-Left */
+.galaxy-bottom-planet-wrap {
+  position: absolute;
+  bottom: -110px;
+  left: -130px;
+  width: 680px;
+  height: 680px;
+  pointer-events: none;
+  opacity: 0.95;
+  filter: drop-shadow(0 0 50px rgba(251, 146, 60, 0.35));
+}
+
+/* Luminous Constellation Sphere at Center-Top */
+.galaxy-center-constellation-wrap {
+  position: absolute;
+  top: 20px;
+  left: 31%;
+  width: 480px;
+  height: 480px;
+  pointer-events: none;
+  opacity: 0.88;
+  filter: drop-shadow(0 0 35px rgba(251, 146, 60, 0.35));
+}
+
+/* Sweeping diagonal orbital arcs */
+.galaxy-sweeping-arc {
+  position: absolute;
+  top: 10%;
+  right: -15%;
+  width: 1400px;
+  height: 700px;
+  border: 1.5px solid rgba(251, 146, 60, 0.22);
+  border-radius: 50%;
+  transform: rotate(-28deg);
+  box-shadow: 0 0 25px rgba(251, 146, 60, 0.15);
+  pointer-events: none;
+}
+
+.galaxy-sweeping-arc-faint {
+  position: absolute;
+  top: 22%;
+  right: -10%;
+  width: 1550px;
+  height: 800px;
+  border: 1px solid rgba(253, 186, 116, 0.12);
+  border-radius: 50%;
+  transform: rotate(-32deg);
+  pointer-events: none;
+}
+
+/* Top Dashboard Header (Spans full width at top) */
+.dash-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.15rem 2.5rem;
+  background: rgba(8, 12, 22, 0.75);
+  border-bottom: 1px solid var(--dash-border);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  z-index: 50;
+  width: 100%;
+}
+
+.dash-brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.dash-brand-title {
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  color: var(--cream-txt);
+  text-transform: uppercase;
+}
+
+.dash-header-right {
+  display: flex;
+  align-items: center;
+  gap: 1.75rem; /* Generous, clean spacing between user pill and logout */
+}
+
+/* Viewport Body Container (Split into Fixed Sidebar + Main Scrollable Area) */
+.dash-viewport-body {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex: 1;
+  width: 100%;
+}
+
+/* Constant / Fixed Left Sidebar that does NOT scroll */
+.dash-sidebar {
+  position: fixed;
+  top: 66px; /* Sits directly beneath top header */
+  left: 0;
+  bottom: 0;
+  width: 230px;
+  background: rgba(8, 12, 22, 0.72);
+  border-right: 1px solid var(--dash-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.5rem 1rem 1.75rem;
+  z-index: 30;
+}
+
+.sidebar-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.95rem;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--muted-txt);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  text-align: left;
+}
+
+.sidebar-nav-item:hover {
+  color: var(--cream-txt);
+  background: rgba(255, 247, 237, 0.04);
+}
+
+.sidebar-nav-item--active {
+  background: rgba(251, 146, 60, 0.14);
+  color: var(--orange-core);
+  box-shadow: 0 0 16px rgba(251, 146, 60, 0.12);
+}
+
+/* Poetic quote anchored at the very bottom of the fixed sidebar */
+.sidebar-bottom-quote {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.74rem;
+  line-height: 1.6;
+  color: rgba(255, 247, 237, 0.45);
+  padding: 0 0.5rem;
+  margin-top: auto;
+}
+
+.sidebar-quote-text {
+  margin: 0;
+}
+
+/* Main Dashboard Scrollable Content Area (offset by the 230px fixed sidebar) */
+.dash-main-area {
+  flex: 1;
+  margin-left: 230px;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 66px);
+  position: relative;
+  z-index: 10;
+  overflow-y: auto;
+}
+
+.dash-user-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 1rem;
+  border-radius: 9999px;
+  background: rgba(255, 247, 237, 0.05);
+  border: 1px solid var(--dash-border);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.dash-user-avatar-img {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--orange-core);
+}
+
+.dash-avatar-circle {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--orange-core);
+  color: #030611;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.dash-logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.48rem 1rem;
+  border-radius: 9999px;
+  background: rgba(255, 247, 237, 0.05);
+  border: 1px solid var(--dash-border);
+  color: var(--muted-txt);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dash-logout-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  transform: translateY(-1px);
+}
+
+/* Empty State for Repositories */
+.dash-empty-repos {
+  padding: 3.5rem 2rem;
+  border-radius: 20px;
+  background: rgba(13, 20, 36, 0.65);
+  border: 1px dashed rgba(251, 146, 60, 0.25);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.25rem;
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.5);
+}
+
+.dash-empty-icon-wrap {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(251, 146, 60, 0.1);
+  border: 1px solid rgba(251, 146, 60, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--orange-core);
+  box-shadow: 0 0 30px rgba(251, 146, 60, 0.15);
+}
+
+.dash-empty-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--cream-txt);
+  margin: 0;
+}
+
+.dash-empty-sub {
+  font-size: 0.88rem;
+  color: var(--muted-txt);
+  max-width: 460px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.sample-repos-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.sample-repo-pill {
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  background: rgba(255, 247, 237, 0.04);
+  border: 1px solid rgba(255, 247, 237, 0.1);
+  color: #fdba74;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sample-repo-pill:hover {
+  background: rgba(251, 146, 60, 0.15);
+  border-color: var(--orange-core);
+  color: #fff7ed;
+  transform: translateY(-1px);
+}
+
+/* Main Content Container */
+.dash-body-content {
+  padding: 2rem 2.5rem 3.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2.25rem;
+  max-width: 1540px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Top Split Hero & New Analysis Banner */
+.dash-top-banner {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 2rem;
+  align-items: center;
+  position: relative;
+}
+
+.banner-left-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.banner-eyebrow-pill {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--orange-core);
+  padding: 0.3rem 0.75rem;
+  border-radius: 9999px;
+  background: rgba(251, 146, 60, 0.12);
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  display: inline-flex;
+  width: fit-content;
+}
+
+.banner-title {
+  font-size: clamp(2.4rem, 3.8vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  color: var(--cream-txt);
+  margin: 0;
+}
+
+.banner-title em {
+  font-family: "Instrument Serif", Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--orange-core);
+  display: block;
+}
+
+.banner-desc {
+  font-size: 0.96rem;
+  color: var(--muted-txt);
+  max-width: 480px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* Glowing 3D Wireframe Globe Backdrop */
+.wireframe-globe-wrap {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 280px;
+  height: 280px;
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+/* Right Side: New Analysis Glass Card (Exact Match to Image 2) */
+.new-analysis-card {
+  padding: 1.85rem;
+  border-radius: 20px;
+  background: rgba(13, 20, 36, 0.85);
+  border: 1px solid rgba(251, 146, 60, 0.22);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow:
+    0 20px 50px -10px rgba(0, 0, 0, 0.7),
+    0 0 30px rgba(251, 146, 60, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.new-analysis-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.new-analysis-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--cream-txt);
+  margin: 0;
+}
+
+.new-analysis-sub {
+  font-size: 0.84rem;
+  color: var(--muted-txt);
+  margin-top: -0.75rem;
+}
+
+.new-analysis-form {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.analysis-input-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.analysis-input-icon {
+  position: absolute;
+  left: 1rem;
+  width: 16px !important;
+  height: 16px !important;
+  max-width: 16px !important;
+  max-height: 16px !important;
+  color: #6b7280;
+  opacity: 0.65;
+  pointer-events: none;
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.analysis-text-input {
+  width: 100%;
+  padding: 0.85rem 1rem 0.85rem 2.75rem;
+  border-radius: 12px;
+  background: rgba(9, 14, 26, 0.92);
+  border: 1px solid rgba(251, 146, 60, 0.25);
+  color: var(--cream-txt);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.88rem;
+  outline: none;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+  transition: all 0.25s ease;
+}
+
+.analysis-text-input:hover {
+  border-color: rgba(251, 146, 60, 0.45);
+}
+
+.analysis-text-input:focus {
+  border-color: var(--orange-core);
+  box-shadow:
+    0 0 0 3px rgba(251, 146, 60, 0.22),
+    0 0 20px rgba(251, 146, 60, 0.15);
+}
+
+.analysis-submit-btn {
+  padding: 0.85rem 1.6rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fb923c 0%, #f59e0b 100%);
+  color: #030611;
+  border: none;
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 18px rgba(251, 146, 60, 0.4);
+}
+
+.analysis-submit-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(251, 146, 60, 0.55);
+}
+
+.analysis-trust-badges {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  font-size: 0.74rem;
+  font-family: "JetBrains Mono", monospace;
+  color: var(--muted-txt);
+}
+
+/* Center-Left 9-col + Right 3-col Grid */
+.dash-grid-sections {
+  display: grid;
+  grid-template-columns: minmax(0, 2.75fr) minmax(290px, 340px);
+  gap: 2rem;
+  align-items: start;
+}
+
+/* Repositories Section Controls */
+.repos-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.repos-section-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.repos-section-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--cream-txt);
+  margin: 0;
+}
+
+.repos-section-sub {
+  font-size: 0.82rem;
+  color: var(--muted-txt);
+}
+
+.repos-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* Global options reset for dark dropdowns */
+select option {
+  background-color: #0b1120;
+  color: #fff7ed;
+  padding: 0.5rem;
+}
+
+.repo-search-input,
+.dash-search-input {
+  padding: 0.65rem 1rem 0.65rem 2.4rem;
+  border-radius: 12px;
+  background: rgba(9, 14, 26, 0.88);
+  border: 1px solid rgba(251, 146, 60, 0.22);
+  color: var(--cream-txt);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.82rem;
+  outline: none;
+  width: 220px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.repo-search-input:hover,
+.dash-search-input:hover {
+  border-color: rgba(251, 146, 60, 0.45);
+}
+
+.repo-search-input:focus,
+.dash-search-input:focus {
+  border-color: var(--orange-core);
+  box-shadow:
+    0 0 0 3px rgba(251, 146, 60, 0.25),
+    0 0 15px rgba(251, 146, 60, 0.15);
+}
+
+.repo-filter-select,
+.dash-filter-select {
+  padding: 0.65rem 1.15rem;
+  border-radius: 12px;
+  background: rgba(9, 14, 26, 0.88);
+  border: 1px solid rgba(251, 146, 60, 0.22);
+  color: var(--cream-txt);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.82rem;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.repo-filter-select:hover,
+.dash-filter-select:hover {
+  border-color: rgba(251, 146, 60, 0.45);
+}
+
+.repo-filter-select:focus,
+.dash-filter-select:focus {
+  border-color: var(--orange-core);
+  box-shadow: 0 0 15px rgba(251, 146, 60, 0.2);
+}
+
+/* Primary Action Buttons (Sunset Orange Gradient) */
+.dash-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.45rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fb923c 0%, #f59e0b 100%);
+  color: #030611;
+  font-weight: 800;
+  font-size: 0.88rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 18px rgba(251, 146, 60, 0.35);
+  text-decoration: none;
+}
+
+.dash-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(251, 146, 60, 0.55);
+  filter: brightness(1.05);
+}
+
+/* Secondary Action Buttons (Luxury Dark Glass with Amber Accent) */
+.dash-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.25rem;
+  border-radius: 9999px;
+  background: rgba(255, 247, 237, 0.05);
+  border: 1px solid rgba(251, 146, 60, 0.25);
+  color: #fdba74;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  text-decoration: none;
+}
+
+.dash-btn-secondary:hover {
+  background: rgba(251, 146, 60, 0.16);
+  border-color: var(--orange-core);
+  color: #fff7ed;
+  transform: translateY(-1px);
+  box-shadow: 0 0 16px rgba(251, 146, 60, 0.2);
+}
+
+.dash-clear-link {
+  font-size: 0.78rem;
+  font-family: "JetBrains Mono", monospace;
+  color: #9ca3af;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.dash-clear-link:hover {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* 6-Card Repository Grid (Exact Match to Image 2) */
+.repo-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.25rem;
+}
+
+.repo-card {
+  padding: 1.35rem;
+  border-radius: 18px;
+  background: rgba(13, 20, 36, 0.82);
+  border: 1px solid var(--dash-border);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  position: relative;
+}
+
+.repo-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--dash-border-hover);
+  box-shadow:
+    0 16px 36px -10px rgba(0, 0, 0, 0.6),
+    0 0 25px rgba(251, 146, 60, 0.1);
+}
+
+.repo-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.repo-card-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.repo-card-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--cream-txt);
+}
+
+.repo-type-tag {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  background: rgba(255, 247, 237, 0.06);
+  border: 1px solid rgba(255, 247, 237, 0.1);
+  color: var(--muted-txt);
+}
+
+.repo-card-desc {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted-txt);
+  margin: 0;
+  min-height: 2.9rem;
+}
+
+/* Tech pills */
+.repo-tech-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.tech-pill {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  background: rgba(255, 247, 237, 0.05);
+  border: 1px solid rgba(255, 247, 237, 0.08);
+  color: #d1d5db;
+}
+
+/* Metrics & Status */
+.repo-metrics-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--muted-txt);
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 247, 237, 0.06);
+}
+
+.repo-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.repo-status-indicator--done {
+  color: var(--green-online);
+}
+
+.repo-status-indicator--progress {
+  color: var(--blue-indexing);
+}
+
+/* Progress bar inside indexing card (voidharsh22/Astrograph) */
+.card-progress-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: 9999px;
+  background: rgba(255, 247, 237, 0.08);
+  overflow: hidden;
+}
+
+.card-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #38bdf8, #818cf8);
+  border-radius: 9999px;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+}
+
+.repo-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.74rem;
+  color: var(--muted-txt);
+  margin-top: auto;
+}
+
+/* Right Column Widgets */
+.dash-right-widgets {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.widget-card {
+  padding: 1.45rem;
+  border-radius: 18px;
+  background: rgba(13, 20, 36, 0.82);
+  border: 1px solid var(--dash-border);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.widget-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--cream-txt);
+  margin: 0;
+}
+
+/* 2x2 Bento Quick Stats Grid */
+.bento-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.bento-stat-tile {
+  padding: 0.95rem;
+  border-radius: 12px;
+  background: rgba(10, 15, 28, 0.75);
+  border: 1px solid rgba(255, 247, 237, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.bento-stat-num {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--cream-txt);
+  line-height: 1;
+}
+
+.bento-stat-label {
+  font-size: 0.72rem;
+  color: var(--muted-txt);
+  font-weight: 500;
+}
+
+/* Recent Activity Timeline */
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+}
+
+.timeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 4px;
+}
+
+.timeline-dot--green {
+  background: var(--green-online);
+  box-shadow: 0 0 8px var(--green-online);
+}
+
+.timeline-dot--blue {
+  background: var(--blue-indexing);
+  box-shadow: 0 0 8px var(--blue-indexing);
+}
+
+.timeline-title {
+  color: var(--cream-txt);
+  font-weight: 600;
+}
+
+.timeline-date {
+  font-size: 0.72rem;
+  color: var(--muted-txt);
+}
+
+/* Promo Card: Explore the power of graphs */
+.promo-graph-card {
+  padding: 1.5rem;
+  border-radius: 18px;
+  background: linear-gradient(
+    135deg,
+    rgba(251, 146, 60, 0.12) 0%,
+    rgba(13, 20, 36, 0.9) 100%
+  );
+  border: 1px solid rgba(251, 146, 60, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.promo-btn {
+  padding: 0.75rem;
+  border-radius: 9999px;
+  background: rgba(251, 146, 60, 0.15);
+  border: 1px solid rgba(251, 146, 60, 0.4);
+  color: var(--orange-core);
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.promo-btn:hover {
+  background: var(--orange-core);
+  color: #030611;
+  box-shadow: 0 0 20px rgba(251, 146, 60, 0.4);
+}
+
+/* Bottom Feature Strip */
+.dash-bottom-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  padding: 1.25rem 2rem;
+  border-radius: 18px;
+  background: rgba(13, 20, 36, 0.75);
+  border: 1px solid var(--dash-border);
+}
+
+.strip-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.strip-icon-circle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(251, 146, 60, 0.12);
+  border: 1px solid rgba(251, 146, 60, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--orange-core);
+  flex-shrink: 0;
+}
+
+.strip-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--cream-txt);
+  margin: 0;
+}
+
+.strip-desc {
+  font-size: 0.76rem;
+  color: var(--muted-txt);
+  margin: 0;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .repo-cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .dash-top-banner {
+    grid-template-columns: 1fr;
+  }
+  .dash-grid-sections {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .dash-sidebar {
+    display: none;
+  }
+  .repo-cards-grid {
+    grid-template-columns: 1fr;
+  }
+  .dash-bottom-strip {
+    grid-template-columns: 1fr;
+  }
+}
