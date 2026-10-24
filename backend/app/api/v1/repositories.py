@@ -108,6 +108,7 @@ async def get_repository_graph(repo_id: str) -> AstralGraph:
     """Retrieve 3D celestial graph for an indexed repository."""
     graph = load_graph_artifact(repo_id)
     if graph is not None:
+        set_active_graph_store(get_active_graph_store().__class__(graph))
         return graph
 
     active_store = get_active_graph_store()
