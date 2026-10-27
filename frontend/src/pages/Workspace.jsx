@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -21,7 +21,13 @@ import useAuth from '../hooks/useAuth.js';
 import GalaxyGraph3D from '../components/Graph/GalaxyGraph3D.jsx';
 import CytoscapeGalaxyGraph from '../components/Graph2D/CytoscapeGalaxyGraph.jsx';
 import NodeInspectorPanel from '../components/Graph2D/NodeInspectorPanel.jsx';
-import { getRepositoryGraph, askCodebaseQuestion } from '../api/workspaceService.js';
+import { getRepositoryGraph, getDiagnostics } from '../api/workspaceService.js';
+import GraphToolsPanel from '../components/GraphToolsPanel.jsx';
+import { getAssistantStatus } from '../services/astralAiService.ts';
+import { DEFAULT_FILTERS, applyFilters, isolate } from '../services/graphView.js';
+import AstralAiAssistant from '../components/AstralAiAssistant.tsx';
+import EdgeDataFlowInspector from '../components/EdgeDataFlowInspector.tsx';
+import { useGalaxyCopilotBridge } from '../hooks/useGalaxyCopilotBridge.ts';
 import SiteFooter from '../components/SiteFooter.jsx';
 import '../styles/workspace.css';
 
@@ -45,22 +51,58 @@ export default function Workspace() {
   // Data & graph states
   const [graphData, setGraphData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedNodeId, setSelectedNodeId] = useState('file::src/telemetry.py');
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [selectedCluster, setSelectedCluster] = useState(null);
-  const [highlightedNodeIds, setHighlightedNodeIds] = useState([]);
+  // Shared graph-view state: drives BOTH the 2D and 3D canvases, the inspectors and the tools panel
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [isolated, setIsolated] = useState(false);
+  const [showEdgeLabels, setShowEdgeLabels] = useState(false);
+  const [highlight, setHighlight] = useState({ nodeIds: [], edgeIds: [] });
+  const [resetToken, setResetToken] = useState(0);
+  const [toolsOpen, setToolsOpen] = useState(true);
+  const [diagnostics, setDiagnostics] = useState(null);
+  const [diagnosticsError, setDiagnosticsError] = useState(null);
+  const [aiStatus, setAiStatus] = useState(null);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
 
-  // AI Chat state
-  const [chatMessages, setChatMessages] = useState([
-    {
-      sender: 'ai',
-      text: "Greetings! I'm your Astral Cartographer AI agent. I can guide your camera through the codebase, explain architectural workflows, or trace blast radius impacts."
-    }
-  ]);
-  const [chatInput, setChatInput] = useState('');
-  const [isAsking, setIsAsking] = useState(false);
+  // Astral AI Copilot drawer (Ctrl/Cmd + K). In the "Astral AI Assistant" tab the copilot is docked instead.
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  // Prompt sent into the copilot from the edge inspector ("Ask Astral AI to Trace Full Path")
+  const [copilotRequest, setCopilotRequest] = useState(null);
+  // Dependency beam selected in the 3D galaxy (opens the Edge Data-Flow Inspector)
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  // "Focus Star" requests for the 2D graph (centers a node without closing the edge inspector)
+  const [focus2d, setFocus2d] = useState(null);
+
+  // Stable selection handler: shared by the 3D canvas and the AI bridge (never rebuilds the WebGL scene)
+  const handleSelectNode = useCallback((id) => {
+    setSelectedNodeId(id);
+    setSelectedCluster(null);
+    setSelectedEdgeId(null);
+  }, []);
+
+  const handleSelectEdge = useCallback((id) => {
+    setSelectedEdgeId(id || null);
+  }, []);
+
+  // AI camera moves select nodes too, but must not close an Edge Data-Flow Inspector the user opened
+  const handleCopilotSelect = useCallback((id) => {
+    setSelectedNodeId(id);
+    setSelectedCluster(null);
+  }, []);
+
+  // Tool calls from the AI need a tab that actually shows the galaxy
+  const revealGalaxy = useCallback(() => {
+    setActiveTab((tab) => (tab === 'graph' || tab === 'ai' ? tab : 'graph'));
+  }, []);
+
+  const copilot = useGalaxyCopilotBridge({
+    graph: graphData,
+    onSelectNode: handleCopilotSelect,
+    onRevealGalaxy: revealGalaxy,
+  });
 
   // Load graph payload
   useEffect(() => {
@@ -77,10 +119,17 @@ export default function Workspace() {
           data.repo_url = urlParam;
         }
         setGraphData(data);
-        if (data?.nodes?.length > 0) {
-          const firstFile = data.nodes.find((n) => n.type === 'file') || data.nodes[0];
-          setSelectedNodeId(firstFile ? firstFile.id : data.nodes[0].id);
+        setFilters(DEFAULT_FILTERS);
+        setIsolated(false);
+        setHighlight({ nodeIds: [], edgeIds: [] });
+        setDiagnostics(null);
+        setDiagnosticsError(null);
+        if (data.repository_id && !data.is_demo) {
+          getDiagnostics(data.repository_id)
+            .then((d) => setDiagnostics(d.diagnostics))
+            .catch((e) => setDiagnosticsError(e.message));
         }
+        setSelectedNodeId(null); // no arbitrary default selection: it would bias AI retrieval
       } catch (err) {
         console.error('Failed to load repository graph:', err);
         setLoadError(err.message || 'Failed to load repository graph');
@@ -91,11 +140,62 @@ export default function Workspace() {
     load();
   }, [repoParam, nameParam, urlParam]);
 
+  useEffect(() => {
+    getAssistantStatus().then(setAiStatus);
+  }, []);
+
+  const backendRepoId = graphData && !graphData.is_demo ? graphData.repository_id || repoParam : null;
+
+  // The filtered/isolated graph handed to both canvases (same normalized data, same selection)
+  const viewGraph = useMemo(() => {
+    if (!graphData) return graphData;
+    const filtered = applyFilters(graphData, filters);
+    if (isolated && selectedNodeId) {
+      const base = applyFilters(graphData, { ...filters, nodeKinds: 'all', language: 'all', directory: 'all' });
+      const keep = new Set(isolate(base, selectedNodeId).nodeIds);
+      return { ...filtered, nodes: filtered.nodes.filter((n) => keep.has(n.id)), edges: filtered.edges.filter((e) => keep.has(e.source) && keep.has(e.target)) };
+    }
+    return filtered;
+  }, [graphData, filters, isolated, selectedNodeId]);
+
+  const applyHighlight = useCallback((h) => {
+    setHighlight({ nodeIds: h.nodeIds || [], edgeIds: h.edgeIds || [] });
+    if (h.kind === 'impact') copilot.showImpact(h.sourceId, h.depths || []);
+    else if (h.kind === 'path') copilot.showPath(h.label, h.nodeIds);
+    else copilot.showSet(h.label || 'Selection', h.nodeIds);
+  }, [copilot]);
+
+  const clearHighlight = useCallback(() => {
+    setHighlight({ nodeIds: [], edgeIds: [] });
+    copilot.clearOverlay();
+  }, [copilot]);
+
+  const resetView = useCallback(() => {
+    setFilters(DEFAULT_FILTERS);
+    setIsolated(false);
+    setShowEdgeLabels(false);
+    clearHighlight();
+    setResetToken(Date.now());
+  }, [clearHighlight]);
+
+  // Open a file from a reference (AI answer, finding, inspector) in the explorer/inspector
+  const openPath = useCallback((path) => {
+    const node = graphData?.nodes.find((n) => n.path === path);
+    if (!node) return;
+    handleSelectNode(node.id);
+    setActiveTab((tab) => (tab === 'graph' || tab === 'graph2d' || tab === 'ai' ? tab : 'explorer'));
+  }, [graphData, handleSelectNode]);
+
   // Selected Node data
   const selectedNode = useMemo(() => {
     if (!graphData?.nodes || !selectedNodeId) return null;
     return graphData.nodes.find((n) => n.id === selectedNodeId) || null;
   }, [graphData, selectedNodeId]);
+
+  const selectedEdge = useMemo(() => {
+    if (!graphData?.edges || !selectedEdgeId) return null;
+    return graphData.edges.find((e) => e.id === selectedEdgeId) || null;
+  }, [graphData, selectedEdgeId]);
 
   // Filtered nodes for Search & Explorer
   const filteredNodes = useMemo(() => {
@@ -110,39 +210,32 @@ export default function Workspace() {
     );
   }, [graphData, searchQuery]);
 
-  // Handle AI question submit
-  const handleSendChat = async (e) => {
-    e?.preventDefault();
-    if (!chatInput.trim() || isAsking) return;
-
-    const userQ = chatInput.trim();
-    setChatInput('');
-    setChatMessages((prev) => [...prev, { sender: 'user', text: userQ }]);
-    setIsAsking(true);
-
-    try {
-      const resp = await askCodebaseQuestion(userQ, repoParam);
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          sender: 'ai',
-          text: resp.answer,
-          highlights: resp.highlighted_node_ids
+  // Ctrl/Cmd + K toggles the Astral AI Copilot drawer (or focuses the docked chat on the AI tab)
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.defaultPrevented) return;
+      if (activeTab === 'graph2d') return; // the 2D graph keeps Ctrl+K for its own search box
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (activeTab === 'ai') {
+          document.querySelector('.astral-copilot--docked textarea')?.focus();
+        } else {
+          setCopilotOpen((open) => !open);
         }
-      ]);
-      if (resp.highlighted_node_ids?.length > 0) {
-        setHighlightedNodeIds(resp.highlighted_node_ids);
-        setSelectedNodeId(resp.highlighted_node_ids[0]);
       }
-    } catch {
-      setChatMessages((prev) => [
-        ...prev,
-        { sender: 'ai', text: "Encountered an issue analyzing the codebase query. Please try again." }
-      ]);
-    } finally {
-      setIsAsking(false);
-    }
-  };
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeTab]);
+
+  // Floating chip shown over the galaxy while an AI overlay (workflow / blast radius / cluster) is active
+  const fxChip = copilot.hasOverlay ? (
+    <div className="astral-fx-chip">
+      <Bot size={13} />
+      <span>{copilot.overlayLabel}</span>
+      <button type="button" onClick={copilot.clearOverlay}>Clear</button>
+    </div>
+  ) : null;
 
   return (
     <div className="workspace-layout">
@@ -246,7 +339,7 @@ export default function Workspace() {
           className={`workspace-tab ${activeTab === 'ai' ? 'workspace-tab--active' : ''}`}
           onClick={() => setActiveTab('ai')}
         >
-          <Bot size={15} /> AI Assistant
+          <Bot size={15} /> Astral AI Assistant
         </button>
         <button
           type="button"
@@ -358,15 +451,19 @@ export default function Workspace() {
               </div>
             ) : (
               <CytoscapeGalaxyGraph
-                graphData={graphData}
+                graphData={viewGraph}
+                highlightNodeIds={highlight.nodeIds}
+                highlightEdgeIds={highlight.edgeIds}
+                showEdgeLabels={showEdgeLabels}
                 selectedNodeId={selectedNodeId}
-                onSelectNode={(id) => {
-                  setSelectedNodeId(id);
-                  setSelectedCluster(null);
-                }}
+                onSelectNode={handleSelectNode}
+                selectedEdgeId={selectedEdgeId}
+                onSelectEdge={handleSelectEdge}
+                focusRequest={focus2d}
                 onSelectCluster={(cluster) => {
                   setSelectedCluster(cluster);
                   setSelectedNodeId(null);
+                  setSelectedEdgeId(null);
                 }}
               />
             )}
@@ -381,15 +478,20 @@ export default function Workspace() {
                 INITIALIZING CELESTIAL MAPPING...
               </div>
             ) : (
-              <GalaxyGraph3D
-                graphData={graphData}
-                selectedNodeId={selectedNodeId}
-                highlightedNodeIds={highlightedNodeIds}
-                onSelectNode={(id) => {
-                  setSelectedNodeId(id);
-                  setSelectedCluster(null);
-                }}
-              />
+              <>
+                <GalaxyGraph3D
+                  graphData={viewGraph}
+                  showEdgeLabels={showEdgeLabels}
+                  resetToken={resetToken}
+                  selectedNodeId={selectedNodeId}
+                  highlightedNodeIds={highlight.nodeIds}
+                  onSelectNode={handleSelectNode}
+                  copilotFx={copilot.fx}
+                  selectedEdgeId={selectedEdgeId}
+                  onSelectEdge={handleSelectEdge}
+                />
+                {fxChip}
+              </>
             )}
           </div>
         )}
@@ -467,7 +569,7 @@ export default function Workspace() {
                 <div className="glow-icon-wrap glow-icon-wrap--dark">
                   <Cpu size={18} />
                 </div>
-                <div className="glow-card-metric">{graphData?.clusters?.length || 6}</div>
+                <div className="glow-card-metric">{graphData?.clusters?.length ?? 0}</div>
                 <h3 className="glow-card-title">Directory Clusters</h3>
                 <p className="glow-card-desc">
                   Visual containment groups structuring child source files into module boundaries.
@@ -533,97 +635,119 @@ export default function Workspace() {
           </div>
         )}
 
-        {/* Tab 6: AI Assistant */}
+        {/* Tab 6: Astral AI Assistant — 3D galaxy (left ~65%) + docked copilot (right ~35%, rendered below) */}
         {activeTab === 'ai' && (
-          <div className="workspace-view">
-            <div className="chat-container">
-              <div className="chat-history">
-                {chatMessages.map((msg, i) => (
-                  <div
-                    key={i}
-                    className={`chat-message ${msg.sender === 'user' ? 'chat-message--user' : 'chat-message--ai'}`}
-                  >
-                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', color: '#9ca3af', marginBottom: '0.25rem' }}>
-                      {msg.sender === 'user' ? 'You' : 'Astral Agent'}
-                    </div>
-                    <div>{msg.text}</div>
-                    {msg.highlights && (
-                      <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: '#67e8f9' }}>
-                        ⚡ Highlighted {msg.highlights.length} nodes in Galaxy
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {isAsking && (
-                  <div className="chat-message chat-message--ai" style={{ fontSize: '0.85rem', fontFamily: 'var(--font-mono)', color: '#00e5ff' }}>
-                    Traversing graph topology & synthesizing response...
-                  </div>
-                )}
+          <div className="workspace-view workspace-view--graph">
+            {loading ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#fb923c', fontFamily: 'var(--font-mono)' }}>
+                INITIALIZING CELESTIAL MAPPING...
               </div>
-              <form onSubmit={handleSendChat} className="chat-input-row">
-                <input
-                  type="text"
-                  className="chat-input-field"
-                  placeholder="Ask anything about architecture, workflows, or impact radius..."
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
+            ) : (
+              <>
+                <GalaxyGraph3D
+                  graphData={viewGraph}
+                  showEdgeLabels={showEdgeLabels}
+                  resetToken={resetToken}
+                  selectedNodeId={selectedNodeId}
+                  highlightedNodeIds={highlight.nodeIds}
+                  onSelectNode={handleSelectNode}
+                  copilotFx={copilot.fx}
+                  selectedEdgeId={selectedEdgeId}
+                  onSelectEdge={handleSelectEdge}
                 />
-                <button type="submit" className="chat-send-btn" disabled={isAsking}>
-                  Send
-                </button>
-              </form>
-            </div>
+                {fxChip}
+              </>
+            )}
           </div>
         )}
 
-        {/* Tab 7: Indexing Status */}
+        {/* Tab 7: Indexing Status (real parser diagnostics from the persisted analysis) */}
         {activeTab === 'status' && (
-          <div className="workspace-view" style={{ maxWidth: '700px', margin: '0 auto' }}>
+          <div className="workspace-view" style={{ maxWidth: '760px', margin: '0 auto' }}>
             <div style={{ marginBottom: '1.5rem' }}>
-              <p className="kicker-glow">INDEXING ENGINE</p>
-              <h2 className="overview-hero-title">
-                Telemetry <em>Pipeline</em>
-              </h2>
+              <p className="kicker-glow">PARSER DIAGNOSTICS</p>
+              <h2 className="overview-hero-title">Analysis <em>Report</em></h2>
             </div>
-
-            <div className="status-pipeline-box">
-              <div className="status-pipeline-header">
-                <span style={{ fontWeight: 600, fontSize: '0.88rem', letterSpacing: '0.02em' }}>Pipeline Execution</span>
-                <span className="status-pipeline-badge">100% COMPLETE</span>
-              </div>
-              <div className="status-progress-track">
-                <div className="status-progress-bar" />
-              </div>
-              <div className="status-steps-list">
-                <div className="status-step-item">
-                  <span className="status-check-icon">✓</span>
-                  <span>Repository cloned & AST parsed via Tree-sitter</span>
+            {graphData?.is_demo && <p className="overview-subtitle">Demo data has no parser run, so there are no diagnostics to show.</p>}
+            {diagnosticsError && <p style={{ color: '#fca5a5' }}>{diagnosticsError}</p>}
+            {diagnostics && (
+              <div className="status-pipeline-box">
+                <div className="status-pipeline-header">
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>Latest analysis</span>
+                  <span className="status-pipeline-badge">{String(diagnostics.status).toUpperCase()}</span>
                 </div>
-                <div className="status-step-item">
-                  <span className="status-check-icon">✓</span>
-                  <span>NetworkX PageRank & Louvain community clusters computed</span>
-                </div>
-                <div className="status-step-item">
-                  <span className="status-check-icon">✓</span>
-                  <span>3D celestial galaxy coordinates & 2D dependency topology computed</span>
-                </div>
-                <div className="status-step-item">
-                  <span className="status-check-icon">✓</span>
-                  <span>LangGraph Q&A camera targeting initialized</span>
+                <div className="status-steps-list">
+                  <div className="status-step-item"><span>Files discovered: {diagnostics.files.discovered}; parsed: {diagnostics.files.parsed_successfully}/{diagnostics.files.parseable_discovered}; syntax errors: {diagnostics.files.with_syntax_errors}; unsupported: {diagnostics.files.unsupported}</span></div>
+                  <div className="status-step-item"><span>Symbols: {diagnostics.symbols.extracted}; imports resolved: {diagnostics.dependencies.imports_resolved}; external: {diagnostics.dependencies.imports_external}; unresolved internal: {diagnostics.dependencies.imports_unresolved}</span></div>
+                  <div className="status-step-item"><span>Calls resolved: {diagnostics.dependencies.calls_resolved}; ambiguous: {diagnostics.dependencies.calls_ambiguous}; unresolved: {diagnostics.dependencies.calls_unresolved}</span></div>
+                  <div className="status-step-item"><span>Total parsing time: {diagnostics.timings_ms.total} ms ({Object.entries(diagnostics.timings_ms).filter(([k]) => k !== 'total').map(([k, v]) => `${k} ${v}ms`).join(', ')})</span></div>
+                  {diagnostics.warnings.map((w, i) => (<div key={i} className="status-step-item"><span>⚠ {w}</span></div>))}
                 </div>
               </div>
-            </div>
+            )}
           </div>
+        )}
+
+        {['graph2d', 'graph'].includes(activeTab) && graphData && (
+          <GraphToolsPanel
+            repoId={backendRepoId}
+            graph={graphData}
+            viewGraph={viewGraph}
+            filters={filters}
+            setFilters={setFilters}
+            selectedNodeId={selectedNodeId}
+            isolated={isolated}
+            setIsolated={setIsolated}
+            showEdgeLabels={showEdgeLabels}
+            setShowEdgeLabels={setShowEdgeLabels}
+            onHighlight={applyHighlight}
+            onClearHighlight={clearHighlight}
+            onResetView={resetView}
+            onOpenPath={openPath}
+            diagnostics={diagnostics}
+            diagnosticsError={diagnosticsError}
+            aiStatus={backendRepoId ? aiStatus : { configured: false, reason: 'AI features need a real analysed repository (this is demo data).' }}
+            open={toolsOpen}
+            onToggle={() => setToolsOpen((o) => !o)}
+          />
         )}
 
         {/* ─── SIDE INSPECTOR DRAWER ───────────────────────────────────────── */}
-        {(selectedNode || selectedCluster) && (
+        {selectedEdge && graphData && (
+          <EdgeDataFlowInspector
+            edge={selectedEdge}
+            graph={graphData}
+            repoId={repoParam}
+            onClose={() => setSelectedEdgeId(null)}
+            onFocusNode={(id) => {
+              if (activeTab === 'graph2d') {
+                setFocus2d({ id, token: Date.now() });
+                return;
+              }
+              copilot.focusNode(id); // camera flies to the star; the beam stays selected
+            }}
+            onAskAstral={(text) => {
+              setCopilotRequest({ text, token: Date.now() });
+              if (activeTab !== 'ai') setCopilotOpen(true);
+            }}
+            onSimulateBreak={(sourceId) => {
+              copilot.executeTool(
+                { id: `sim_${Date.now()}`, name: 'showBlastRadius', input: { sourceNodeId: sourceId, depth: 3, affectedNodeIds: [] } },
+                { force: true },
+              );
+              if (activeTab !== 'ai') setCopilotOpen(true);
+            }}
+          />
+        )}
+
+        {!selectedEdge && (selectedNode || selectedCluster) && (
           <NodeInspectorPanel
             selectedNode={selectedNode}
             selectedCluster={selectedCluster}
             allNodes={graphData?.nodes || []}
             allEdges={graphData?.edges || []}
             repoName={graphData?.repo_name || repoParam}
+            repoId={backendRepoId}
             onSelectNode={(id) => {
               setSelectedNodeId(id);
               setSelectedCluster(null);
@@ -634,6 +758,20 @@ export default function Workspace() {
             }}
           />
         )}
+
+        {/* ─── ASTRAL AI COPILOT (docked on the AI tab, slide-over drawer elsewhere) ─── */}
+        <AstralAiAssistant
+          graph={graphData}
+          repoId={backendRepoId}
+          selectedNodeId={selectedNodeId}
+          bridge={copilot}
+          variant={activeTab === 'ai' ? 'docked' : 'drawer'}
+          request={copilotRequest}
+          drawerOffset={selectedEdge ? 392 : 16}
+          open={copilotOpen}
+          onOpen={() => setCopilotOpen(true)}
+          onClose={() => setCopilotOpen(false)}
+        />
       </div>
 
       {/* Shared Global Site Footer */}
