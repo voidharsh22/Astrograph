@@ -79,6 +79,8 @@ class JavaScriptTreeSitterVisitor:
         self._scope_stack: list[tuple[str, str]] = []
         # Function stack: list of Symbol instances representing current active function/method
         self._func_stack: list[Symbol] = []
+        # start_byte of require() calls already recorded by a declaration handler
+        self._consumed_requires: set[int] = set()
 
     def _text(self, node: Optional[ts.Node]) -> str:
         if node is None:
@@ -274,6 +276,10 @@ class JavaScriptTreeSitterVisitor:
         if ntype == "enum_declaration":
             self._visit_enum_declaration(node)
             return
+
+        if ntype == "assignment_expression":
+            if self._visit_assignment_expression(node):
+                return
 
         if ntype == "call_expression":
             self._visit_call_expression(node)
@@ -621,6 +627,9 @@ class JavaScriptTreeSitterVisitor:
             if not name_node or not value_node:
                 continue
 
+            if self._visit_require_declarator(name_node, value_node):
+                continue
+
             var_name = self._text(name_node)
 
             if value_node.type in (
@@ -683,6 +692,270 @@ class JavaScriptTreeSitterVisitor:
             else:
                 # Walk non-function variable initialization for calls
                 self.walk(value_node)
+
+    # ------------------------------------------------------------------
+    # CommonJS / dynamic-import support
+    # ------------------------------------------------------------------
+    def _string_literal_value(self, node: Optional[ts.Node]) -> Optional[str]:
+        """Return the value of a plain string literal (no template substitutions)."""
+        if node is None:
+            return None
+        if node.type == "string":
+            return self._clean_str(self._text(node))
+        if node.type == "template_string" and not any(
+            c.type == "template_substitution" for c in node.children
+        ):
+            return self._clean_str(self._text(node))
+        return None
+
+    def _require_module(self, node: Optional[ts.Node]) -> Optional[str]:
+        """Return the module specifier when node is `require('literal')`."""
+        if node is None or node.type != "call_expression":
+            return None
+        fn = node.child_by_field_name("function")
+        if fn is None or fn.type != "identifier" or self._text(fn) != "require":
+            return None
+        args = node.child_by_field_name("arguments")
+        if args is None:
+            return None
+        named = [c for c in args.children if c.is_named and c.type != "comment"]
+        if len(named) != 1:
+            return None
+        return self._string_literal_value(named[0])
+
+    def _add_cjs_import(
+        self, node: ts.Node, module: str, name: str, alias: Optional[str], form: str
+    ) -> None:
+        self.imports.append(
+            Import(
+                module=module,
+                name=name,
+                alias=alias,
+                file_path=self.file_path,
+                lineno=self._lineno(node),
+                col_offset=self._col_offset(node),
+                level=0,
+                import_form=form,
+                is_type_only=False,
+                language=self.language,
+            )
+        )
+
+    def _visit_module_loader_call(
+        self, node: ts.Node, fn_node: Optional[ts.Node]
+    ) -> bool:
+        """Record `require('x')` and `import('x')` calls as file dependencies."""
+        if fn_node is None:
+            return False
+        module: Optional[str] = None
+        if fn_node.type == "import":
+            args = node.child_by_field_name("arguments")
+            first = next((c for c in (args.children if args else []) if c.is_named), None)
+            module = self._string_literal_value(first)
+        else:
+            module = self._require_module(node)
+        if module is None:
+            return False
+        if node.start_byte not in self._consumed_requires:
+            self._add_cjs_import(node, module, "", None, "side_effect")
+        return True
+
+    def _visit_require_declarator(
+        self, name_node: ts.Node, value_node: ts.Node
+    ) -> bool:
+        """Handle `const x = require('m')`, `const {a, b: c} = require('m')`, `require('m').p`."""
+        member: Optional[str] = None
+        call = value_node
+        if value_node.type == "member_expression":
+            call = value_node.child_by_field_name("object")
+            prop = value_node.child_by_field_name("property")
+            member = self._text(prop) if prop else None
+            if call is None or member is None:
+                return False
+        module = self._require_module(call)
+        if module is None:
+            return False
+        self._consumed_requires.add(call.start_byte)
+
+        if name_node.type == "identifier":
+            local = self._text(name_node)
+            if member:
+                self._add_cjs_import(name_node, module, member, local, "named")
+            else:
+                self._add_cjs_import(name_node, module, "*", local, "namespace")
+        elif name_node.type == "object_pattern" and not member:
+            added = False
+            for prop in name_node.children:
+                if prop.type == "shorthand_property_identifier_pattern":
+                    self._add_cjs_import(prop, module, self._text(prop), None, "named")
+                    added = True
+                elif prop.type == "pair_pattern":
+                    key = prop.child_by_field_name("key")
+                    val = prop.child_by_field_name("value")
+                    if key is not None and val is not None and val.type == "identifier":
+                        self._add_cjs_import(
+                            prop, module, self._text(key), self._text(val), "named"
+                        )
+                        added = True
+            if not added:
+                self._add_cjs_import(name_node, module, "", None, "side_effect")
+        else:
+            self._add_cjs_import(name_node, module, "", None, "side_effect")
+        return True
+
+    def _emit_function_symbol(
+        self,
+        fn_node: ts.Node,
+        name: str,
+        qualified_name: str,
+        kind: str,
+        is_exported: bool,
+    ) -> Symbol:
+        """Create a symbol for a function expression and walk its body."""
+        is_async = any(c.type == "async" for c in fn_node.children)
+        if is_async and kind == "function":
+            kind = "async_function"
+        lineno = self._lineno(fn_node)
+        params = self._extract_parameters(fn_node)
+        body_node = fn_node.child_by_field_name("body")
+        sym = Symbol(
+            id=f"{self.file_path}::{qualified_name}:{kind}:{lineno}",
+            name=name,
+            qualified_name=qualified_name,
+            kind=kind,
+            file_path=self.file_path,
+            lineno=lineno,
+            end_lineno=self._end_lineno(fn_node),
+            col_offset=self._col_offset(fn_node),
+            parent_scope=self._current_scope_name(),
+            parameters=params,
+            signature=f"{qualified_name}({', '.join(params)})",
+            decorators=[],
+            bases=None,
+            is_async=is_async,
+            language=self.language,
+            is_exported=is_exported,
+            local_variables=self._extract_js_local_variables(body_node),
+        )
+        self.symbols.append(sym)
+        self._scope_stack.append((qualified_name, "function"))
+        self._func_stack.append(sym)
+        if body_node:
+            self.walk(body_node)
+        self._func_stack.pop()
+        self._scope_stack.pop()
+        return sym
+
+    def _add_cjs_export(
+        self, node: ts.Node, name: str, alias: Optional[str], is_default: bool = False
+    ) -> None:
+        self.exports.append(
+            Export(
+                name=name,
+                file_path=self.file_path,
+                lineno=self._lineno(node),
+                col_offset=self._col_offset(node),
+                alias=alias,
+                is_default=is_default,
+                language=self.language,
+            )
+        )
+
+    def _visit_assignment_expression(self, node: ts.Node) -> bool:
+        """Handle CommonJS exports and `obj.method = function () {}` assignments.
+
+        Returns True when the assignment was fully handled (children walked).
+        """
+        left = node.child_by_field_name("left")
+        right = node.child_by_field_name("right")
+        if left is None or right is None or left.type not in ("member_expression", "identifier"):
+            return False
+        left_text = self._text(left)
+        fn_types = ("function_expression", "arrow_function", "generator_function")
+        is_fn = right.type in fn_types
+        file_stem = Path(self.file_path).stem
+
+        # module.exports = ... / exports = ...
+        if left_text in ("module.exports", "exports"):
+            if right.type == "assignment_expression":
+                return False  # chained; the inner assignment is handled when walked
+            if right.type == "object":
+                for member in right.children:
+                    if member.type == "shorthand_property_identifier":
+                        self._add_cjs_export(member, self._text(member), None)
+                    elif member.type == "pair":
+                        key = member.child_by_field_name("key")
+                        val = member.child_by_field_name("value")
+                        if key is None or val is None:
+                            continue
+                        key_name = self._clean_str(self._text(key))
+                        if val.type == "identifier":
+                            ident = self._text(val)
+                            self._add_cjs_export(
+                                member, key_name, ident if ident != key_name else None
+                            )
+                        elif val.type in fn_types:
+                            self._emit_function_symbol(val, key_name, key_name, "function", True)
+                            self._add_cjs_export(member, key_name, None)
+                        else:
+                            self.walk(val)
+                    elif member.type == "method_definition":
+                        mname = member.child_by_field_name("name")
+                        if mname is not None:
+                            n = self._text(mname)
+                            self._emit_function_symbol(member, n, n, "function", True)
+                            self._add_cjs_export(member, n, None)
+                return True
+            if right.type == "identifier":
+                self._add_cjs_export(node, "default", self._text(right), is_default=True)
+                return True
+            if is_fn:
+                fn_name_node = right.child_by_field_name("name")
+                fn_name = self._text(fn_name_node) if fn_name_node else file_stem
+                self._emit_function_symbol(right, fn_name, fn_name, "function", True)
+                self._add_cjs_export(node, "default", fn_name, is_default=True)
+                return True
+            if right.type == "class":
+                return False
+            self._add_cjs_export(node, "default", None, is_default=True)
+            self.walk(right)
+            return True
+
+        # exports.name = ... / module.exports.name = ...
+        for prefix in ("module.exports.", "exports."):
+            if left_text.startswith(prefix) and "." not in left_text[len(prefix):]:
+                name = left_text[len(prefix):]
+                if is_fn:
+                    self._emit_function_symbol(right, name, name, "function", True)
+                    self._add_cjs_export(node, name, None)
+                    return True
+                if right.type == "identifier":
+                    ident = self._text(right)
+                    self._add_cjs_export(node, name, ident if ident != name else None)
+                    return True
+                self._add_cjs_export(node, name, None)
+                self.walk(right)
+                return True
+
+        # Obj.method = function () {} / Obj.prototype.method = function () {}
+        if is_fn and left.type == "member_expression":
+            obj = left.child_by_field_name("object")
+            prop = left.child_by_field_name("property")
+            if obj is not None and prop is not None and prop.type == "property_identifier":
+                obj_text = self._text(obj)
+                if obj_text.endswith(".prototype"):
+                    obj_text = obj_text[: -len(".prototype")]
+                root = obj_text.split(".")[0]
+                if (
+                    obj_text
+                    and root not in ("this", "window", "global", "globalThis", "self", "module", "exports")
+                    and root.isidentifier()
+                ):
+                    name = self._text(prop)
+                    self._emit_function_symbol(right, name, f"{obj_text}.{name}", "method", False)
+                    return True
+        return False
+
 
     def _visit_class_declaration(
         self, node: ts.Node, is_exported: bool = False
@@ -941,6 +1214,8 @@ class JavaScriptTreeSitterVisitor:
     def _visit_call_expression(self, node: ts.Node) -> None:
         """Extract function or method call expression."""
         fn_node = node.child_by_field_name("function")
+        if self._visit_module_loader_call(node, fn_node):
+            return
         callee_expr = self._text(fn_node)
         lineno = self._lineno(node)
         col = self._col_offset(node)

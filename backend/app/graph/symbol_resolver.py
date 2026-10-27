@@ -8,7 +8,9 @@ Supports Python, JavaScript, and TypeScript language semantics.
 from __future__ import annotations
 
 import builtins
+import json
 import os
+import re
 from pathlib import Path
 import sys
 from typing import Any, Optional
@@ -76,6 +78,31 @@ JS_BUILTINS: frozenset[str] = frozenset(
     }
 )
 
+# Node.js core modules (with or without the ``node:`` prefix) are never repository files.
+NODE_BUILTIN_MODULES: frozenset[str] = frozenset(
+    {
+        "assert", "async_hooks", "buffer", "child_process", "cluster", "console",
+        "constants", "crypto", "dgram", "diagnostics_channel", "dns", "domain",
+        "events", "fs", "http", "http2", "https", "inspector", "module", "net",
+        "os", "path", "perf_hooks", "process", "punycode", "querystring",
+        "readline", "repl", "stream", "string_decoder", "sys", "timers", "tls",
+        "trace_events", "tty", "url", "util", "v8", "vm", "wasi", "worker_threads",
+        "zlib", "test",
+    }
+)
+
+_JSONC_COMMENT = re.compile(r'("(?:\\.|[^"\\])*")|//[^\n]*|/\*.*?\*/', re.DOTALL)
+_JSONC_TRAILING_COMMA = re.compile(r",(\s*[}\]])")
+
+
+def _parse_jsonc(text: str) -> dict[str, Any]:
+    """Parse tsconfig-style JSON (comments and trailing commas allowed)."""
+    stripped = _JSONC_COMMENT.sub(lambda m: m.group(1) or "", text)
+    stripped = _JSONC_TRAILING_COMMA.sub(r"\1", stripped)
+    data = json.loads(stripped)
+    return data if isinstance(data, dict) else {}
+
+
 JS_TS_EXTENSIONS: list[str] = [
     ".ts",
     ".tsx",
@@ -117,6 +144,10 @@ class SymbolResolver:
         # file_path -> { local_name: { "type": "symbol"|"module"|"namespace", ... } }
         self.file_import_scopes: dict[str, dict[str, Any]] = {}
 
+        # tsconfig/jsconfig path aliases: (config_dir, base_dir, [(pattern, [targets])])
+        self.js_alias_configs: list[tuple[str, str, list[tuple[str, list[str]]]]] = []
+        self.config_warnings: list[str] = []
+
     def index_inventory(self, files: list[dict[str, Any]]) -> None:
         """Index repository files from scanner inventory."""
         for f in files:
@@ -125,6 +156,66 @@ class SymbolResolver:
             self.file_records[norm_path] = f
             if f.get("language") == "Python":
                 self.python_files.add(norm_path)
+        self._load_js_alias_configs()
+
+    def _load_js_alias_configs(self) -> None:
+        """Read tsconfig.json / jsconfig.json ``baseUrl`` and ``paths`` for alias resolution."""
+        self.js_alias_configs = []
+        for rel in sorted(self.all_files):
+            if Path(rel).name not in ("tsconfig.json", "jsconfig.json"):
+                continue
+            try:
+                raw = (self.repo_root / rel).read_text(encoding="utf-8", errors="replace")
+                opts = (_parse_jsonc(raw).get("compilerOptions") or {})
+            except (OSError, ValueError) as exc:
+                self.config_warnings.append(f"Could not read {rel}: {exc}")
+                continue
+            base_url = opts.get("baseUrl")
+            paths = opts.get("paths") or {}
+            if base_url is None and not paths:
+                continue
+            config_dir = Path(rel).parent.as_posix()
+            config_dir = "" if config_dir == "." else config_dir
+            base_dir = (Path(config_dir) / (base_url or ".")).as_posix()
+            base_dir = "" if base_dir == "." else os.path.normpath(base_dir).replace("\\", "/")
+            base_dir = "" if base_dir == "." else base_dir
+            patterns = [
+                (pat, [t for t in targets if isinstance(t, str)])
+                for pat, targets in paths.items()
+                if isinstance(targets, list)
+            ]
+            self.js_alias_configs.append((config_dir, base_dir, patterns))
+            if base_url is not None:
+                patterns.append(("*", ["*"]))
+
+    def _resolve_js_alias(self, importing_file: str, specifier: str) -> Optional[str]:
+        """Resolve a bare specifier through tsconfig/jsconfig ``paths``/``baseUrl``."""
+        importing_dir = Path(importing_file).parent.as_posix()
+        for config_dir, base_dir, patterns in self.js_alias_configs:
+            if config_dir and not (
+                importing_dir == config_dir or importing_dir.startswith(config_dir + "/")
+            ):
+                continue
+            for pattern, targets in patterns:
+                if "*" in pattern:
+                    prefix, _, suffix = pattern.partition("*")
+                    if not (specifier.startswith(prefix) and specifier.endswith(suffix)):
+                        continue
+                    star = specifier[len(prefix): len(specifier) - len(suffix) if suffix else None]
+                elif specifier == pattern:
+                    star = ""
+                else:
+                    continue
+                for target in targets:
+                    candidate = target.replace("*", star)
+                    joined = os.path.normpath(os.path.join(base_dir, candidate)).replace("\\", "/")
+                    joined = "" if joined == "." else joined
+                    resolved = self._resolve_js_relative_specifier(
+                        importing_file, "/" + joined if joined else "/"
+                    )
+                    if resolved:
+                        return resolved
+        return None
 
     def index_symbols(self, symbols: list[dict[str, Any]]) -> None:
         """Index symbols extracted by AST parser."""
@@ -435,6 +526,7 @@ class SymbolResolver:
                     parts.append(p)
             base_target = "/".join(parts)
         else:
+            # Rooted specifier (used for alias targets): relative to repository root
             base_target = specifier.strip("/")
 
         # 1. Exact match
@@ -485,10 +577,24 @@ class SymbolResolver:
         # Check if external package (not starting with . or /)
         is_relative = module.startswith("./") or module.startswith("../")
         if not is_relative:
-            # Check if it matches a path from repo root directly
-            target = self._resolve_js_relative_specifier(importing_file, module)
+            # Only tsconfig/jsconfig aliases may map a bare specifier onto repository
+            # files; a bare name is never guessed from the repository root.
+            target = self._resolve_js_alias(importing_file, module)
             if target:
                 return (target, None)
+            if module.startswith("node:") or module.split("/")[0] in NODE_BUILTIN_MODULES:
+                return (
+                    None,
+                    UnresolvedReference(
+                        kind="import",
+                        source_file=importing_file,
+                        expression=expr,
+                        target_name=module,
+                        lineno=lineno,
+                        status=STATUS_EXTERNAL,
+                        reason=f"Module '{module}' is a Node.js built-in",
+                    ),
+                )
 
             # Not found locally: treat as external dependency
             return (
