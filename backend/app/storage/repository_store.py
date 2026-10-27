@@ -329,3 +329,156 @@ def recover_interrupted_jobs(db_path: Optional[Path] = None) -> int:
                 (now, repo_id),
             )
         return len(interrupted)
+
+
+MAX_ANALYSES_PER_REPOSITORY = 5
+
+
+@dataclass
+class AnalysisRecord:
+    """Persistent summary of one completed analysis run, including parser diagnostics."""
+
+    id: str
+    repository_id: str
+    job_id: str
+    status: str
+    created_at: str
+    file_count: int
+    symbol_count: int
+    node_count: int
+    edge_count: int
+    import_edge_count: int
+    unresolved_import_count: int
+    graph_sha256: Optional[str]
+    diagnostics: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _analysis_from_row(row: Any) -> AnalysisRecord:
+    import json
+
+    data = dict(row)
+    diagnostics = json.loads(data.pop("diagnostics_json") or "{}")
+    return AnalysisRecord(diagnostics=diagnostics, **data)
+
+
+def complete_analysis(
+    job_id: str,
+    repo_id: str,
+    analysis_id: str,
+    graph_summary: dict[str, Any],
+    graph_sha256: Optional[str],
+    diagnostics: dict[str, Any],
+    db_path: Optional[Path] = None,
+) -> AnalysisRecord:
+    """Atomically record the analysis, mark the job completed, and mark the repository completed.
+
+    All three writes share one transaction: if any fails, none is applied and the caller
+    must report the job as failed rather than reporting a saved analysis.
+    """
+    import json
+
+    now = current_utc_iso()
+    files = diagnostics.get("files", {})
+    symbols = diagnostics.get("symbols", {})
+    deps = diagnostics.get("dependencies", {})
+    edges_by_type = graph_summary.get("edges_by_type", {}) or {}
+    with get_db(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO analyses (
+                id, repository_id, job_id, status, created_at, file_count, symbol_count,
+                node_count, edge_count, import_edge_count, unresolved_import_count,
+                graph_sha256, diagnostics_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                analysis_id,
+                repo_id,
+                job_id,
+                "completed",
+                now,
+                int(files.get("discovered", 0)),
+                int(symbols.get("extracted", 0)),
+                int(graph_summary.get("node_count", 0)),
+                int(graph_summary.get("edge_count", 0)),
+                int(edges_by_type.get("IMPORTS", 0)),
+                int(deps.get("imports_unresolved", 0)),
+                graph_sha256,
+                json.dumps(diagnostics),
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE indexing_jobs SET status = 'completed', stage = 'completed',
+                progress = 100, completed_at = ? WHERE id = ?
+            """,
+            (now, job_id),
+        )
+        conn.execute(
+            "UPDATE repositories SET status = 'completed', error_message = NULL, updated_at = ? WHERE id = ?",
+            (now, repo_id),
+        )
+        # Bound history so repeated re-analysis cannot grow without limit.
+        conn.execute(
+            """
+            DELETE FROM analyses WHERE repository_id = ? AND id NOT IN (
+                SELECT id FROM analyses WHERE repository_id = ?
+                ORDER BY created_at DESC, id DESC LIMIT ?
+            )
+            """,
+            (repo_id, repo_id, MAX_ANALYSES_PER_REPOSITORY),
+        )
+    latest = get_latest_analysis(repo_id, db_path=db_path)
+    if latest is None:
+        raise RuntimeError("Analysis record was not persisted")
+    return latest
+
+
+def get_latest_analysis(
+    repo_id: str,
+    db_path: Optional[Path] = None,
+) -> Optional[AnalysisRecord]:
+    """Return the most recent analysis for a repository, if any."""
+    with get_db(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM analyses WHERE repository_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+            (repo_id,),
+        ).fetchone()
+        return _analysis_from_row(row) if row else None
+
+
+def list_analyses(
+    repo_id: str,
+    limit: int = 10,
+    db_path: Optional[Path] = None,
+) -> list[AnalysisRecord]:
+    """List analyses for a repository, newest first."""
+    with get_db(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM analyses WHERE repository_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+            (repo_id, limit),
+        ).fetchall()
+        return [_analysis_from_row(r) for r in rows]
+
+
+def get_repository_exact(
+    repo_id: str,
+    db_path: Optional[Path] = None,
+) -> Optional[RepositoryRecord]:
+    """Look up a repository by exact primary key only (no fuzzy URL/name matching)."""
+    with get_db(db_path) as conn:
+        row = conn.execute("SELECT * FROM repositories WHERE id = ?", (repo_id,)).fetchone()
+        return RepositoryRecord(**dict(row)) if row else None
+
+
+def delete_repository_records(
+    repo_id: str,
+    db_path: Optional[Path] = None,
+) -> bool:
+    """Delete a repository and (via ON DELETE CASCADE) its jobs and analyses."""
+    with get_db(db_path) as conn:
+        cursor = conn.execute("DELETE FROM repositories WHERE id = ?", (repo_id,))
+        return cursor.rowcount > 0
