@@ -232,3 +232,17 @@ backend/data/
 - **In-Process Worker**: Indexing jobs are executed using an in-process thread pool. Distributed worker queues (e.g., Celery/Redis) are planned for a subsequent phase.
 - **Languages**: Python AST and JavaScript/TypeScript Tree-sitter parsing are supported. Additional language parsers (Go, Rust, Java) will be added in future steps.
 - **Static Analysis Scope**: Dynamic imports and runtime monkey-patching are intentionally not reflected in static graph queries.
+
+
+---
+
+## Analysis, AI and graph tooling (2026-10 overhaul)
+
+- **Parser**: tree-sitter is pinned to `<0.26` (0.26.0 crashes natively on real JS files). JavaScript now extracts CommonJS
+  `require()`, dynamic `import()`, `module.exports`/`exports.x` and `obj.method = function` forms; `tsconfig.json`/`jsconfig.json`
+  `baseUrl`/`paths` aliases are honoured; bare package names are never guessed from the repo root.
+- **Diagnostics**: `GET /api/repositories/{id}/diagnostics` (persisted per analysis in the `analyses` table) and the Parser tab / Indexing Status tab.
+- **Database**: SQLite with versioned migrations (`schema_migrations`); analysis completion is one transaction; `DELETE /api/repositories/{id}`.
+- **AI**: configure `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY`) in `backend/.env`. `GET /api/ai/status`, streaming `POST /api/repositories/{id}/ai/chat`,
+  plus `/ai/architecture`, `/ai/onboarding`, `/ai/graph-query`, `/ai/advice`, `/ai/impact` and deterministic `/insights/{health,impact,path}`.
+- **Tests**: `cd backend && python -m pytest`; `cd frontend && node --test src/services/graphView.test.mjs && npm run build`.

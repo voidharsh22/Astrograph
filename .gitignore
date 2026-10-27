@@ -1,4 +1,4 @@
-﻿# Python cache files
+# Python cache files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -7,6 +7,12 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Node dependencies and build
+node_modules/
+dist/
+dist-ssr/
+
 
 # Testing and linting
 .pytest_cache/

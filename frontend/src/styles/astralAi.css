@@ -1,0 +1,1025 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Astral AI Copilot — Sunset Orange deep-space glass theme
+   Palette: #020308 / #111827 / #1F2937 base · #FB923C Sunset Orange · #FDBA74 Warm Peach
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.astral-copilot {
+  --a-bg: rgba(17, 24, 39, 0.9);
+  --a-panel: #1f2937;
+  --a-orange: #fb923c;
+  --a-peach: #fdba74;
+  --a-cream: #fff7ed;
+  --a-muted: #9ca3af;
+  --a-line: rgba(255, 247, 237, 0.1);
+  --a-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: var(--a-cream);
+  font-family: 'Plus Jakarta Sans', 'Space Grotesk', system-ui, sans-serif;
+  font-size: 0.86rem;
+  background:
+    radial-gradient(120% 60% at 100% 0%, rgba(251, 146, 60, 0.12), transparent 60%),
+    linear-gradient(180deg, rgba(17, 24, 39, 0.94), rgba(2, 3, 8, 0.96));
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  box-sizing: border-box;
+}
+.astral-copilot *,
+.astral-copilot *::before,
+.astral-copilot *::after {
+  box-sizing: border-box;
+}
+
+/* Docked: right 35% column of the AI Assistant tab */
+.astral-copilot--docked {
+  flex: 0 0 35%;
+  min-width: 340px;
+  max-width: 620px;
+  height: 100%;
+  border-left: 1px solid rgba(251, 146, 60, 0.28);
+  box-shadow: -14px 0 40px rgba(0, 0, 0, 0.45);
+  z-index: 9;
+}
+
+/* Drawer: Ctrl/Cmd + K slide-over available from every tab */
+.astral-copilot--drawer {
+  position: fixed;
+  top: 88px;
+  right: 16px;
+  bottom: 16px;
+  width: min(440px, calc(100vw - 32px));
+  z-index: 70;
+  border: 1px solid rgba(251, 146, 60, 0.35);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7), 0 0 44px rgba(251, 146, 60, 0.16);
+  transform: translateX(0);
+  opacity: 1;
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease, visibility 0s linear 0s;
+}
+.astral-copilot--drawer.is-closed {
+  transform: translateX(calc(100% + 32px));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 0.28s ease, opacity 0.2s ease, visibility 0s linear 0.3s;
+}
+.astral-copilot--docked.is-closed {
+  display: none;
+}
+
+/* Floating sparkle launcher */
+.astral-launcher {
+  position: fixed;
+  right: 22px;
+  bottom: 74px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid rgba(253, 186, 116, 0.55);
+  background: radial-gradient(circle at 30% 25%, #fdba74, #fb923c 55%, #c2410c);
+  color: #111827;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  z-index: 65;
+  box-shadow: 0 10px 30px rgba(251, 146, 60, 0.45);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.astral-launcher:hover {
+  transform: translateY(-2px) scale(1.06);
+  box-shadow: 0 14px 40px rgba(251, 146, 60, 0.6);
+}
+.astral-launcher__ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px solid rgba(251, 146, 60, 0.5);
+  animation: astral-pulse 2.4s ease-out infinite;
+  pointer-events: none;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.astral-header {
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--a-line);
+  background: linear-gradient(180deg, rgba(251, 146, 60, 0.1), transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.astral-header__top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.astral-header__title {
+  flex: 1;
+  min-width: 0;
+}
+.astral-header__title h2 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--a-cream);
+}
+.astral-header__title span {
+  font-size: 0.7rem;
+  color: var(--a-peach);
+  opacity: 0.85;
+}
+.astral-header__actions {
+  display: flex;
+  gap: 4px;
+}
+.astral-header__actions button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--a-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.astral-header__actions button:hover {
+  color: var(--a-cream);
+  background: rgba(255, 247, 237, 0.08);
+  border-color: var(--a-line);
+}
+
+/* Orbital AI core */
+.astral-core {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+.astral-core b {
+  position: absolute;
+  inset: 11px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff7ed, #fb923c 55%, #c2410c);
+  box-shadow: 0 0 14px 3px rgba(251, 146, 60, 0.75);
+}
+.astral-core i {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid transparent;
+  border-top-color: var(--a-orange);
+  border-right-color: rgba(253, 186, 116, 0.4);
+  animation: astral-orbit 3.4s linear infinite;
+}
+.astral-core i + i {
+  inset: 4px;
+  border-top-color: transparent;
+  border-bottom-color: var(--a-peach);
+  border-left-color: rgba(251, 146, 60, 0.35);
+  animation-duration: 2.2s;
+  animation-direction: reverse;
+}
+
+/* Model status pill */
+.astral-model-pill {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-family: var(--a-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+  color: var(--a-peach);
+  background: rgba(2, 3, 8, 0.55);
+  border: 1px solid rgba(251, 146, 60, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.astral-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 8px #34d399;
+  animation: astral-blink 1.8s ease-in-out infinite;
+}
+.astral-model-pill--simulation .astral-dot {
+  background: #fbbf24;
+  box-shadow: 0 0 8px #fbbf24;
+}
+
+/* Context badge */
+.astral-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.astral-context__repo {
+  font-family: var(--a-mono);
+  font-size: 0.66rem;
+  color: var(--a-muted);
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: rgba(255, 247, 237, 0.05);
+  border: 1px solid var(--a-line);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.astral-context__node {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--a-mono);
+  font-size: 0.66rem;
+  color: #111827;
+  background: var(--a-orange);
+  border: none;
+  border-radius: 7px;
+  padding: 4px 9px;
+  cursor: pointer;
+  font-weight: 600;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.astral-context__node:hover {
+  background: var(--a-peach);
+}
+
+/* ── Transcript ─────────────────────────────────────────────────────────── */
+.astral-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(251, 146, 60, 0.35) transparent;
+}
+
+.astral-empty {
+  margin: auto 0;
+  text-align: center;
+  padding: 10px 4px;
+}
+.astral-empty__orb {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff7ed, #fb923c 45%, #7c2d12 85%);
+  box-shadow: 0 0 40px 8px rgba(251, 146, 60, 0.4);
+  animation: astral-float 4s ease-in-out infinite;
+}
+.astral-empty h3 {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+.astral-empty p {
+  margin: 0 auto 18px;
+  max-width: 300px;
+  color: var(--a-muted);
+  line-height: 1.5;
+  font-size: 0.8rem;
+}
+.astral-starters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.astral-starter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(251, 146, 60, 0.28);
+  background: rgba(255, 247, 237, 0.04);
+  backdrop-filter: blur(10px);
+  color: var(--a-cream);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  font: inherit;
+}
+.astral-starter span {
+  font-size: 1.05rem;
+}
+.astral-starter em {
+  font-style: normal;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: #ffedd5;
+}
+.astral-starter:hover:not(:disabled) {
+  border-color: var(--a-orange);
+  background: rgba(251, 146, 60, 0.13);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(251, 146, 60, 0.18);
+}
+.astral-starter:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Messages */
+.astral-msg {
+  display: flex;
+  gap: 10px;
+  animation: astral-in 0.25s ease;
+}
+.astral-msg--user {
+  justify-content: flex-end;
+}
+.astral-msg--user .astral-bubble {
+  max-width: 86%;
+  padding: 10px 14px;
+  border-radius: 16px 16px 4px 16px;
+  background: linear-gradient(135deg, #fb923c, #ea580c);
+  color: #1a0f05;
+  font-weight: 600;
+  line-height: 1.45;
+  box-shadow: 0 8px 22px rgba(251, 146, 60, 0.22);
+}
+.astral-user-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.astral-avatar {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin-top: 2px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #111827;
+  background: radial-gradient(circle at 30% 25%, #fdba74, #fb923c);
+  box-shadow: 0 0 12px rgba(251, 146, 60, 0.5);
+}
+.astral-ai-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.astral-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--a-peach);
+  font-family: var(--a-mono);
+  font-size: 0.72rem;
+}
+.astral-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.astral-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--a-orange);
+  animation: astral-bounce 1s ease-in-out infinite;
+}
+.astral-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.astral-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.astral-caret {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  background: var(--a-orange);
+  border-radius: 2px;
+  animation: astral-blink 0.9s steps(2) infinite;
+}
+
+/* Rich text */
+.astral-rich {
+  line-height: 1.6;
+  color: #ffedd5;
+  word-break: break-word;
+}
+.astral-rich p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+.astral-rich p:last-child,
+.astral-rich ul:last-child,
+.astral-rich ol:last-child {
+  margin-bottom: 0;
+}
+.astral-rich ul,
+.astral-rich ol {
+  margin: 0 0 8px;
+  padding-left: 1.2rem;
+}
+.astral-rich li {
+  margin: 3px 0;
+}
+.astral-rich li::marker {
+  color: var(--a-orange);
+}
+.astral-rich strong {
+  color: var(--a-cream);
+  font-weight: 700;
+}
+.astral-h {
+  font-weight: 800;
+  color: var(--a-cream);
+  margin: 10px 0 5px;
+}
+.astral-h--1 {
+  font-size: 1.05rem;
+}
+.astral-h--2 {
+  font-size: 0.98rem;
+}
+.astral-h--3 {
+  font-size: 0.9rem;
+  color: var(--a-peach);
+}
+.astral-inline-code {
+  font-family: var(--a-mono);
+  font-size: 0.78em;
+  padding: 1px 6px;
+  border-radius: 5px;
+  color: var(--a-peach);
+  background: rgba(251, 146, 60, 0.12);
+  border: 1px solid rgba(251, 146, 60, 0.2);
+}
+
+/* Interactive [[Node]] chips */
+.astral-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: baseline;
+  margin: 0 1px;
+  padding: 1px 8px 1px 6px;
+  font-family: var(--a-mono);
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: #fb923c;
+  background: rgba(251, 146, 60, 0.12);
+  border: 1px solid rgba(251, 146, 60, 0.45);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.astral-chip:hover {
+  color: #111827;
+  background: var(--a-orange);
+  box-shadow: 0 0 14px rgba(251, 146, 60, 0.6);
+}
+.astral-chip--missing {
+  cursor: help;
+  color: var(--a-muted);
+  border: 1px dashed rgba(156, 163, 175, 0.5);
+  background: transparent;
+  padding: 1px 8px;
+}
+.astral-chip--missing:hover {
+  color: var(--a-muted);
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Code blocks */
+.astral-code {
+  margin: 4px 0 8px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1f2937;
+  border: 1px solid rgba(255, 247, 237, 0.08);
+  border-top: 2px solid var(--a-orange);
+}
+.astral-code__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  font-family: var(--a-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  color: var(--a-muted);
+  background: rgba(2, 3, 8, 0.35);
+}
+.astral-code__bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--a-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.astral-code__bar button:hover {
+  color: var(--a-orange);
+}
+.astral-code pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.astral-code code {
+  font-family: var(--a-mono);
+  font-size: 0.74rem;
+  line-height: 1.55;
+  color: #e5e7eb;
+  white-space: pre;
+}
+.tok-com { color: #6b7280; font-style: italic; }
+.tok-str { color: #fdba74; }
+.tok-num { color: #fbbf24; }
+.tok-kw { color: #f472b6; }
+.tok-fn { color: #67e8f9; }
+.tok-type { color: #c4b5fd; }
+
+/* Tool-execution telemetry badges */
+.astral-tool {
+  border-radius: 10px;
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  background: rgba(2, 3, 8, 0.5);
+  font-family: var(--a-mono);
+  font-size: 0.7rem;
+  overflow: hidden;
+}
+.astral-tool--error {
+  border-color: rgba(248, 113, 113, 0.5);
+}
+.astral-tool--skipped {
+  border-style: dashed;
+}
+.astral-tool__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  color: var(--a-peach);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.astral-tool--error .astral-tool__head {
+  color: #fca5a5;
+}
+.astral-tool__icon {
+  display: grid;
+  place-items: center;
+  color: var(--a-orange);
+  flex-shrink: 0;
+}
+.astral-tool__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.astral-tool__chev {
+  flex-shrink: 0;
+  color: var(--a-muted);
+  transition: transform 0.18s ease;
+}
+.astral-tool__chev.is-open {
+  transform: rotate(90deg);
+}
+.astral-tool__replay {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 10px 8px;
+  padding: 3px 10px;
+  font: inherit;
+  color: #111827;
+  background: var(--a-orange);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.astral-tool__replay:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.astral-tool__body {
+  padding: 0 10px 10px;
+  border-top: 1px solid var(--a-line);
+}
+.astral-tool__body pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 170px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #111827;
+  color: #d1d5db;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.astral-tool__kv {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--a-muted);
+  text-transform: uppercase;
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+}
+.astral-tool__kv code {
+  color: var(--a-peach);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.astral-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(251, 146, 60, 0.25);
+  border-top-color: var(--a-orange);
+  animation: astral-orbit 0.7s linear infinite;
+}
+
+/* Overlay status */
+.astral-overlay-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-family: var(--a-mono);
+  font-size: 0.66rem;
+  color: var(--a-peach);
+  background: rgba(251, 146, 60, 0.1);
+  border: 1px solid rgba(251, 146, 60, 0.35);
+  flex-shrink: 0;
+}
+.astral-overlay-bar span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.astral-overlay-bar button {
+  background: none;
+  border: none;
+  color: var(--a-orange);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ── Input ──────────────────────────────────────────────────────────────── */
+.astral-input {
+  position: relative;
+  flex-shrink: 0;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--a-line);
+  background: rgba(2, 3, 8, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.astral-input__box {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 16px;
+  background: rgba(31, 41, 55, 0.85);
+  border: 1px solid var(--a-line);
+  backdrop-filter: blur(14px);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.astral-input__box:focus-within {
+  border-color: rgba(251, 146, 60, 0.7);
+  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.18);
+}
+.astral-input textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--a-cream);
+  font: inherit;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  padding: 7px 0;
+  max-height: 140px;
+}
+.astral-input textarea::placeholder {
+  color: #6b7280;
+}
+.astral-send {
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 12px;
+  color: #1a0f05;
+  cursor: pointer;
+  background: linear-gradient(135deg, #fdba74 0%, #fb923c 50%, #ea580c 100%);
+  box-shadow: 0 6px 18px rgba(251, 146, 60, 0.4);
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.astral-send:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+.astral-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.astral-send--stop {
+  background: rgba(248, 113, 113, 0.9);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(248, 113, 113, 0.35);
+}
+
+.astral-attached {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.astral-attached--sent {
+  margin-bottom: 6px;
+}
+.astral-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  font-family: var(--a-mono);
+  font-size: 0.68rem;
+  color: var(--a-peach);
+  background: rgba(251, 146, 60, 0.14);
+  border: 1px solid rgba(251, 146, 60, 0.4);
+  border-radius: 999px;
+}
+.astral-attached--sent .astral-pill {
+  color: #7c2d12;
+  background: rgba(255, 247, 237, 0.55);
+  border-color: rgba(124, 45, 18, 0.3);
+}
+.astral-pill button {
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* @mention autocomplete */
+.astral-mentions {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% - 4px);
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(17, 24, 39, 0.97);
+  border: 1px solid rgba(251, 146, 60, 0.4);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(16px);
+  z-index: 5;
+}
+.astral-mentions button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--a-cream);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.astral-mentions button strong {
+  font-family: var(--a-mono);
+  font-size: 0.76rem;
+  color: var(--a-orange);
+  font-weight: 600;
+}
+.astral-mentions button small {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-family: var(--a-mono);
+  font-size: 0.64rem;
+  color: var(--a-muted);
+}
+.astral-mentions button.is-active,
+.astral-mentions button:hover {
+  background: rgba(251, 146, 60, 0.16);
+}
+
+/* Auto-pilot toggle */
+.astral-autopilot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.72rem;
+  color: #d1d5db;
+}
+.astral-autopilot small {
+  color: var(--a-muted);
+  font-size: 0.68rem;
+}
+.astral-autopilot input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.astral-switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: #374151;
+  transition: background 0.18s ease;
+}
+.astral-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #e5e7eb;
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+.astral-autopilot input:checked + .astral-switch {
+  background: rgba(251, 146, 60, 0.55);
+}
+.astral-autopilot input:checked + .astral-switch::after {
+  transform: translateX(13px);
+  background: var(--a-orange);
+  box-shadow: 0 0 8px var(--a-orange);
+}
+.astral-autopilot input:focus-visible + .astral-switch {
+  outline: 2px solid var(--a-peach);
+  outline-offset: 2px;
+}
+
+/* Canvas overlay chip (rendered by Workspace) */
+.astral-fx-chip {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px 7px 14px;
+  border-radius: 999px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  color: #fdba74;
+  background: rgba(17, 24, 39, 0.88);
+  border: 1px solid rgba(251, 146, 60, 0.55);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 0 22px rgba(251, 146, 60, 0.25);
+  backdrop-filter: blur(12px);
+  max-width: calc(100% - 32px);
+}
+.astral-fx-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.astral-fx-chip button {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border: none;
+  border-radius: 999px;
+  background: #fb923c;
+  color: #111827;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ── Keyframes ──────────────────────────────────────────────────────────── */
+@keyframes astral-orbit {
+  to { transform: rotate(360deg); }
+}
+@keyframes astral-blink {
+  50% { opacity: 0.35; }
+}
+@keyframes astral-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+@keyframes astral-float {
+  50% { transform: translateY(-6px); }
+}
+@keyframes astral-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes astral-pulse {
+  0% { transform: scale(0.9); opacity: 0.9; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+@media (max-width: 900px) {
+  .astral-copilot--docked {
+    flex-basis: 45%;
+    min-width: 300px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .astral-core i,
+  .astral-dot,
+  .astral-caret,
+  .astral-empty__orb,
+  .astral-launcher__ring {
+    animation: none;
+  }
+}
+
+/* ── Backend-grounded assistant additions ── */
+.astral-ai-banner {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(251, 146, 60, 0.5);
+  background: rgba(251, 146, 60, 0.1);
+  color: #fdba74;
+  font-size: 12px;
+  line-height: 1.45;
+  border-radius: 8px;
+}
+.astral-error {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 10px;
+  font-size: 12.5px;
+}
+.astral-error p { margin: 4px 0 8px; color: #fecaca; }
+.astral-error button {
+  background: #fb923c; color: #000; border: 0; border-radius: 6px;
+  padding: 5px 12px; font-weight: 600; cursor: pointer;
+}
+.astral-sources {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin-top: 10px; padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.15);
+  font-size: 11px; color: #94a3b8;
+}
+.astral-sources em { color: #fbbf24; }
+@media (max-width: 640px) {
+  .astral-copilot--docked, .astral-copilot--drawer { width: 100vw; max-width: 100vw; right: 0 !important; }
+}
