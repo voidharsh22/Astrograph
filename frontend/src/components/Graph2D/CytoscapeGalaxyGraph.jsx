@@ -10,7 +10,6 @@ import {
   Folder,
   Layers,
   Share2,
-  ArrowRight,
 } from 'lucide-react';
 import GalaxyBackground2D from './GalaxyBackground2D.jsx';
 import {
@@ -24,7 +23,13 @@ export default function CytoscapeGalaxyGraph({
   selectedNodeId,
   onSelectNode,
   onSelectCluster,
+  selectedEdgeId = null,
+  onSelectEdge,
+  focusRequest = null,
   className = '',
+  highlightNodeIds = [],
+  highlightEdgeIds = [],
+  showEdgeLabels = false,
 }) {
   const containerRef = useRef(null);
   const cyRef = useRef(null);
@@ -33,6 +38,16 @@ export default function CytoscapeGalaxyGraph({
   const animFrameRef = useRef(null);
   const selectedNodeIdRef = useRef(selectedNodeId);
   const hoverTargetRef = useRef(null);
+  // Edge data-flow interaction: selected beam, stable callbacks, particle overlay canvas
+  const selectedEdgeIdRef = useRef(selectedEdgeId);
+  const onSelectNodeRef = useRef(onSelectNode);
+  const onSelectEdgeRef = useRef(onSelectEdge);
+  const overlayRef = useRef(null);
+
+  useEffect(() => {
+    onSelectNodeRef.current = onSelectNode;
+    onSelectEdgeRef.current = onSelectEdge;
+  });
 
   useEffect(() => {
     selectedNodeIdRef.current = selectedNodeId;
@@ -44,14 +59,15 @@ export default function CytoscapeGalaxyGraph({
     if (!cy) return;
 
     // Reset previous classes
-    cy.elements().removeClass('selected hovered edge-hovered connected-neighbor edge-incoming edge-outgoing dimmed');
+    cy.elements().removeClass('selected hovered edge-hovered edge-focus edge-soft connected-neighbor edge-incoming edge-outgoing dimmed');
 
     // Case A: Hovering an edge (preview relationship endpoints & direction)
     if (targetHover?.type === 'edge') {
       const edge = cy.getElementById(targetHover.id);
       if (edge && edge.length > 0) {
         cy.elements().addClass('dimmed');
-        edge.removeClass('dimmed').addClass('edge-hovered');
+        edge.removeClass('dimmed').addClass('edge-hovered edge-focus');
+        cy.edges().not(edge).removeClass('dimmed').addClass('edge-soft');
 
         const sNode = edge.source();
         const tNode = edge.target();
@@ -92,6 +108,18 @@ export default function CytoscapeGalaxyGraph({
       }
     }
 
+    // Case C0: Persistent beam selection (Edge Data-Flow Inspector open)
+    if (selectedEdgeIdRef.current) {
+      const selEdge = cy.getElementById(selectedEdgeIdRef.current);
+      if (selEdge && selEdge.length > 0) {
+        cy.elements().addClass('dimmed');
+        selEdge.removeClass('dimmed').addClass('edge-hovered edge-focus');
+        cy.edges().not(selEdge).removeClass('dimmed').addClass('edge-soft');
+        selEdge.connectedNodes().removeClass('dimmed').addClass('connected-neighbor');
+        return;
+      }
+    }
+
     // Case C: Persistent selection
     if (targetSelected) {
       const selNode = cy.getElementById(targetSelected);
@@ -117,7 +145,7 @@ export default function CytoscapeGalaxyGraph({
   // Toolbar & Filter states
   const [searchQuery, setSearchQuery] = useState('');
   const [nodeTypeFilter, setNodeTypeFilter] = useState('all'); // 'all' | 'file' | 'symbol'
-  const [languageFilter, setLanguageFilter] = useState('python'); // 'all' | 'python' | 'javascript'
+  const [languageFilter, setLanguageFilter] = useState('all'); // 'all' | 'python' | 'javascript'
   const [dependencyFilter, setDependencyFilter] = useState('all'); // 'all' | 'imports' | 'calls' | 'defines' | 'contains' | 'cross'
   const [activeLayout, setActiveLayout] = useState('force'); // 'force' | 'hierarchical'
 
@@ -464,6 +492,46 @@ export default function CytoscapeGalaxyGraph({
           },
         },
         {
+          selector: 'edge.edge-focus',
+          style: {
+            'width': 3.75,
+            'line-fill': 'linear-gradient',
+            'line-gradient-stop-colors': '#FB923C #FDBA74',
+            'line-gradient-stop-positions': '0% 100%',
+            'target-arrow-color': '#FDBA74',
+            'line-opacity': 1,
+            'opacity': 1,
+            'z-index': 99,
+          },
+        },
+        {
+          selector: 'edge.edge-soft',
+          style: {
+            'line-opacity': 0.2,
+            'opacity': 1,
+          },
+        },
+        {
+          selector: 'edge.labeled',
+          style: {
+            'label': 'data(relation)',
+            'font-size': 9,
+            'color': '#e2e8f0',
+            'text-background-color': '#020308',
+            'text-background-opacity': 0.8,
+            'text-background-padding': 2,
+            'text-rotation': 'autorotate',
+          },
+        },
+        {
+          selector: 'edge.set-hl',
+          style: { 'width': 3.2, 'line-opacity': 1, 'opacity': 1, 'z-index': 90 },
+        },
+        {
+          selector: 'node.set-hl',
+          style: { 'border-width': 3, 'border-color': '#fb923c', 'opacity': 1 },
+        },
+        {
           selector: '.dimmed',
           style: {
             'opacity': 0.16,
@@ -492,8 +560,26 @@ export default function CytoscapeGalaxyGraph({
     // Node click handler
     cy.on('tap', 'node', (evt) => {
       const node = evt.target;
-      onSelectNode?.(node.id());
+      onSelectNodeRef.current?.(node.id());
     });
+
+    // Beam click: open the Edge Data-Flow Inspector for this dependency
+    cy.on('tap', 'edge', (evt) => {
+      // The view reframes on selection, so drop the hover tooltip (it re-appears on the next move)
+      setHoveredEdge(null);
+      hoverTargetRef.current = null;
+      onSelectEdgeRef.current?.(evt.target.id());
+    });
+
+    // Pointer leaving the graph never fires an edge mouseout, so clear hover state here
+    const containerEl = containerRef.current;
+    const onLeave = () => {
+      if (!hoverTargetRef.current) return;
+      hoverTargetRef.current = null;
+      setHoveredEdge(null);
+      applyVisualState();
+    };
+    containerEl.addEventListener('mouseleave', onLeave);
 
     // Node hover preview (independent of active persistent selection)
     cy.on('mouseover', 'node', (evt) => {
@@ -520,10 +606,20 @@ export default function CytoscapeGalaxyGraph({
         target: tNode.data('label') || tNode.id(),
         relation: edge.data('relation') || 'imports',
         isCross: edge.data('is_cross_cluster'),
+        x: evt.renderedPosition?.x ?? 0,
+        y: evt.renderedPosition?.y ?? 0,
       });
       hoverTargetRef.current = { type: 'edge', id: edge.id() };
       applyVisualState();
       if (containerRef.current) containerRef.current.style.cursor = 'pointer';
+    });
+
+    // Tooltip follows the cursor along the beam
+    cy.on('mousemove', 'edge', (evt) => {
+      const id = evt.target.id();
+      const pos = evt.renderedPosition;
+      if (!pos) return;
+      setHoveredEdge((h) => (h && h.id === id ? { ...h, x: pos.x, y: pos.y } : h));
     });
 
     cy.on('mouseout', 'edge', () => {
@@ -536,15 +632,17 @@ export default function CytoscapeGalaxyGraph({
     // Background click (deselect)
     cy.on('tap', (evt) => {
       if (evt.target === cy) {
-        onSelectNode?.(null);
+        onSelectNodeRef.current?.(null);
+        onSelectEdgeRef.current?.(null);
       }
     });
 
     return () => {
+      containerEl.removeEventListener('mouseleave', onLeave);
       cy.destroy();
       cyRef.current = null;
     };
-  }, [onSelectNode, updateClusterBoxesThrottled]);
+  }, [updateClusterBoxesThrottled]);
 
   // Keep Cytoscape canvas sized correctly when sidebar/panel expands or window resizes
   useEffect(() => {
@@ -573,6 +671,124 @@ export default function CytoscapeGalaxyGraph({
   useEffect(() => {
     applyVisualState();
   }, [selectedNodeId, applyVisualState]);
+
+  // Selected beam: restyle and frame both endpoints in view
+  useEffect(() => {
+    selectedEdgeIdRef.current = selectedEdgeId || null;
+    applyVisualState();
+    const cy = cyRef.current;
+    if (!cy || !selectedEdgeId) return;
+    const edge = cy.getElementById(selectedEdgeId);
+    if (!edge || edge.length === 0) return;
+    const ends = edge.connectedNodes();
+    const bb = ends.boundingBox();
+    const fit = Math.min((cy.width() - 260) / Math.max(bb.w, 1), (cy.height() - 220) / Math.max(bb.h, 1));
+    const zoom = Math.max(0.4, Math.min(2.2, fit, Math.max(cy.zoom(), 1.1)));
+    cy.animate({ zoom, center: { eles: ends } }, { duration: 450, easing: 'ease-in-out-cubic' });
+  }, [selectedEdgeId, applyVisualState]);
+
+  // "Focus Source/Target Star" from the edge inspector: center that node without dropping the beam
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || !focusRequest?.id) return;
+    const node = cy.getElementById(focusRequest.id);
+    if (!node || node.length === 0) return;
+    cy.animate({ center: { eles: node }, zoom: Math.max(cy.zoom(), 1.25) }, { duration: 400, easing: 'ease-in-out-cubic' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest?.token]);
+
+  // Data-flow packets along the focused beam (hover = fast stream, selected = steady pulse)
+  // plus orbital rings on the selected beam's endpoints. Drawn on a transparent overlay canvas.
+  useEffect(() => {
+    let raf = 0;
+    let drawn = false;
+    const loop = () => {
+      raf = requestAnimationFrame(loop);
+      const cy = cyRef.current;
+      const canvas = overlayRef.current;
+      if (!cy || !canvas) return;
+      const hoverId = hoverTargetRef.current?.type === 'edge' ? hoverTargetRef.current.id : null;
+      const selId = selectedEdgeIdRef.current;
+      const focusId = hoverId || selId;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+      }
+      if (!focusId) {
+        if (drawn) {
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          drawn = false;
+        }
+        return;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      drawn = true;
+      const t = performance.now() / 1000;
+      const z = Math.min(1.6, Math.max(0.7, cy.zoom()));
+
+      if (selId) {
+        const se = cy.getElementById(selId);
+        if (se && se.length > 0) {
+          [se.source(), se.target()].forEach((n, i) => {
+            const p = n.renderedPosition();
+            const r = Math.max(n.renderedWidth(), n.renderedHeight()) / 2 + 8 + 3 * Math.sin(t * 3 + i * Math.PI);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.strokeStyle = i ? 'rgba(253, 186, 116, 0.9)' : 'rgba(251, 146, 60, 0.9)';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#FB923C';
+            ctx.shadowBlur = 12;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+          });
+        }
+      }
+
+      const e = cy.getElementById(focusId);
+      if (!e || e.length === 0) return;
+      const S = e.renderedSourceEndpoint();
+      const T = e.renderedTargetEndpoint();
+      const M = e.renderedMidpoint();
+      // Quadratic bezier through the rendered midpoint (exact for straight edges, matches bezier edges)
+      const C = { x: 2 * M.x - (S.x + T.x) / 2, y: 2 * M.y - (S.y + T.y) / 2 };
+      const at = (u) => {
+        const a = (1 - u) * (1 - u);
+        const b = 2 * (1 - u) * u;
+        const c = u * u;
+        return { x: a * S.x + b * C.x + c * T.x, y: a * S.y + b * C.y + c * T.y };
+      };
+      const fast = focusId === hoverId;
+      const N = fast ? 8 : 5;
+      const speed = fast ? 0.9 : 0.42;
+      for (let k = 0; k < N; k++) {
+        const u = (t * speed + k / N) % 1;
+        for (let j = 3; j >= 0; j--) {
+          const uu = u - j * 0.018;
+          if (uu < 0) continue;
+          const p = at(uu);
+          const rr = (j === 0 ? 3.4 : 2.6 - j * 0.5) * z;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, Math.max(0.8, rr), 0, Math.PI * 2);
+          ctx.fillStyle = j === 0 ? '#FFF1E0' : `rgba(251, 146, 60, ${0.55 - j * 0.13})`;
+          if (j === 0) {
+            ctx.shadowColor = '#FB923C';
+            ctx.shadowBlur = 14;
+          }
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        }
+      }
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   // Center on selected node when triggered
   const handleCenterOnSelected = () => {
@@ -604,6 +820,29 @@ export default function CytoscapeGalaxyGraph({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // External highlight sets (trace / path / impact / graph query) shared with the 3D view
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return undefined;
+    const raf = requestAnimationFrame(() => {
+      cy.elements().removeClass('set-hl');
+      if (highlightNodeIds.length === 0 && highlightEdgeIds.length === 0) return;
+      const nodeSet = new Set(highlightNodeIds);
+      const edgeSet = new Set(highlightEdgeIds);
+      cy.elements().addClass('dimmed');
+      cy.nodes().filter((n) => nodeSet.has(n.id())).removeClass('dimmed').addClass('set-hl');
+      cy.edges().filter((e) => edgeSet.has(e.id()) || (nodeSet.has(e.source().id()) && nodeSet.has(e.target().id())))
+        .removeClass('dimmed').addClass('set-hl');
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [highlightNodeIds, highlightEdgeIds, graphData]);
+
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.edges().toggleClass('labeled', Boolean(showEdgeLabels));
+  }, [showEdgeLabels, graphData]);
 
   return (
     <div
@@ -933,70 +1172,16 @@ export default function CytoscapeGalaxyGraph({
           ))}
         </div>
 
-        {/* Floating Edge Info Tooltip */}
+        {/* Cursor-following micro-tooltip over a dependency beam */}
         {hoveredEdge && (
-          <div
-            style={{
-              position: 'absolute',
-              top: '16px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 40,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '6px 14px',
-              borderRadius: '20px',
-              border: '1px solid rgba(255, 255, 255, 0.15)',
-              background: 'rgba(10, 16, 30, 0.94)',
-              backdropFilter: 'blur(12px)',
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
-              fontSize: '12px',
-              fontFamily: 'var(--font-mono, monospace)',
-              color: '#e2e8f0',
-              pointerEvents: 'none',
-            }}
-          >
-            <span style={{ color: '#38bdf8', fontWeight: 600 }}>{hoveredEdge.source}</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#94a3b8' }}>
-              <ArrowRight size={12} />
-              <span
-                style={{
-                  fontSize: '10.5px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                  color:
-                    hoveredEdge.relation === 'imports'
-                      ? '#f97316'
-                      : hoveredEdge.relation === 'calls'
-                      ? '#38bdf8'
-                      : hoveredEdge.relation === 'defines'
-                      ? '#a855f7'
-                      : '#10b981',
-                }}
-              >
-                {hoveredEdge.relation}
-              </span>
-              <ArrowRight size={12} />
+          <div className="astral-edge-tip" style={{ left: hoveredEdge.x + 16, top: hoveredEdge.y + 16 }}>
+            <div className="astral-edge-tip__row">
+              <span className="astral-edge-tip__node">[ {hoveredEdge.source} ]</span>
+              <span className="astral-edge-tip__beam">━━( {hoveredEdge.relation} )━━▶</span>
+              <span className="astral-edge-tip__node">[ {hoveredEdge.target} ]</span>
+              {hoveredEdge.isCross && <span className="astral-edge-tip__cross">cross-cluster</span>}
             </div>
-            <span style={{ color: '#fb923c', fontWeight: 600 }}>{hoveredEdge.target}</span>
-            {hoveredEdge.isCross && (
-              <span
-                style={{
-                  fontSize: '9.5px',
-                  padding: '1px 5px',
-                  borderRadius: '3px',
-                  backgroundColor: 'rgba(244, 63, 94, 0.2)',
-                  color: '#fda4af',
-                  border: '1px solid rgba(244, 63, 94, 0.4)',
-                }}
-              >
-                cross-cluster
-              </span>
-            )}
+            <div className="astral-edge-tip__sub">Click to inspect live data flow &amp; payload →</div>
           </div>
         )}
 
@@ -1009,6 +1194,20 @@ export default function CytoscapeGalaxyGraph({
             width: '100%',
             height: '100%',
             zIndex: 10,
+          }}
+        />
+
+        {/* Edge data-flow packets & endpoint rings (never intercepts the pointer) */}
+        <canvas
+          ref={overlayRef}
+          data-edge-flow-overlay=""
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            zIndex: 11,
+            pointerEvents: 'none',
           }}
         />
 

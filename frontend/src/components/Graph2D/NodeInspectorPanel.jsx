@@ -38,6 +38,7 @@ export default function NodeInspectorPanel({
   allNodes = [],
   allEdges = [],
   repoName = 'cosmic-weather-api',
+  repoId = null,
   onSelectNode,
   onClose,
 }) {
@@ -45,6 +46,7 @@ export default function NodeInspectorPanel({
   const [copied, setCopied] = useState(false);
   const [codeContent, setCodeContent] = useState('');
   const [loadingCode, setLoadingCode] = useState(false);
+  const [codeError, setCodeError] = useState(null);
 
   // Compute incoming and outgoing dependencies for selected file
   const { incomingDeps, outgoingDeps } = useMemo(() => {
@@ -91,12 +93,16 @@ export default function NodeInspectorPanel({
   useEffect(() => {
     if (activeTab === 'code' && selectedNode?.path) {
       setLoadingCode(true);
-      getSourceFileContent(repoName, selectedNode.path).then((code) => {
-        setCodeContent(code);
-        setLoadingCode(false);
-      });
+      setCodeError(null);
+      getSourceFileContent(repoId || repoName, selectedNode.path)
+        .then((code) => setCodeContent(code))
+        .catch((err) => {
+          setCodeContent('');
+          setCodeError(err.message || 'Could not load source');
+        })
+        .finally(() => setLoadingCode(false));
     }
-  }, [activeTab, selectedNode, repoName]);
+  }, [activeTab, selectedNode, repoName, repoId]);
 
   const handleCopyPath = () => {
     if (!selectedNode?.path) return;
@@ -256,15 +262,16 @@ export default function NodeInspectorPanel({
       {/* ─── TAB 1: OVERVIEW ─────────────────────────────────────────────── */}
       {activeTab === 'overview' && (
         <>
-          {/* AI ARCHITECTURAL BRIEF */}
+          {/* Summary: AI text only when it was actually supplied (demo data); otherwise verified parser facts */}
           <div className="inspector-summary-box">
             <div className="inspector-summary-tag">
               <Bot size={13} />
-              <span>AI ARCHITECTURAL BRIEF</span>
+              <span>{selectedNode.ai_summary ? 'SUMMARY (DEMO DATA)' : 'PARSER FACTS'}</span>
             </div>
             <p className="inspector-summary-text">
               {selectedNode.ai_summary ||
-                'Handles core logic, processing and dependency execution. Acts as a key architectural bridge across modules.'}
+                `${selectedNode.type} · ${selectedNode.language}${selectedNode.line ? ` · lines ${selectedNode.line}-${selectedNode.end_line ?? selectedNode.line}` : ''} · ` +
+                  `${incomingDeps.length} incoming and ${outgoingDeps.length} outgoing dependencies. Use Graph tools → AI insights for an AI explanation.`}
             </p>
           </div>
 
@@ -391,7 +398,7 @@ export default function NodeInspectorPanel({
               maxHeight: '400px',
               lineHeight: 1.5
             }}>
-              <code>{codeContent}</code>
+              <code>{codeError ? `// ${codeError}` : codeContent}</code>
             </pre>
           )}
         </div>

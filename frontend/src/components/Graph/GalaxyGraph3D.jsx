@@ -146,6 +146,11 @@ export default function GalaxyGraph3D({
   selectedNodeId,
   highlightedNodeIds = [],
   onSelectNode,
+  copilotFx = null,
+  selectedEdgeId = null,
+  onSelectEdge,
+  showEdgeLabels = false,
+  resetToken = 0,
   className = ''
 }) {
   const mountRef = useRef(null);
@@ -164,14 +169,88 @@ export default function GalaxyGraph3D({
   const reqIdRef = useRef(null);
 
   const selectedNodeIdRef = useRef(selectedNodeId);
+  const showEdgeLabelsRef = useRef(showEdgeLabels);
+  showEdgeLabelsRef.current = showEdgeLabels;
   const hoverTargetRef = useRef(null);
 
   const [hoveredNode, setHoveredNode] = useState(null);
-  const [hoveredEdgeData, setHoveredEdgeData] = useState(null);
+  // Cursor-following hover info for the dependency beam under the pointer
+  const [edgeHover, setEdgeHover] = useState(null);
+
+  // Astral AI Copilot overlay state (workflow pulses, blast radius, cluster spotlight)
+  const copilotFxRef = useRef(copilotFx);
+  const copilotOverlayRef = useRef(null);
+  const copilotAnimRef = useRef([]);
+  // Edge interaction: hover/click focus, high-velocity packets, gradient beam, endpoint rings
+  const onSelectEdgeRef = useRef(onSelectEdge);
+  const selectedEdgeIdRef = useRef(selectedEdgeId);
+  const focusEdgeIdRef = useRef(null);
+  const edgeBeamRef = useRef(null);
+  const packetPoolRef = useRef([]);
+  const edgeRingsRef = useRef([]);
+  // Keep the latest selection callback in a ref so parent re-renders never rebuild the WebGL scene
+  const onSelectNodeRef = useRef(onSelectNode);
 
   useEffect(() => {
     selectedNodeIdRef.current = selectedNodeId;
   }, [selectedNodeId]);
+
+  useEffect(() => {
+    onSelectNodeRef.current = onSelectNode;
+    copilotFxRef.current = copilotFx;
+    onSelectEdgeRef.current = onSelectEdge;
+  }, [onSelectNode, copilotFx, onSelectEdge]);
+
+  // Edge focus (hover preview or selected beam): dims other beams to 20%, lights the focus beam,
+  // and sizes the gradient beam. Runs at the end of every highlight pass.
+  const applyEdgeFocus = useCallback(() => {
+    const hoverId = hoverTargetRef.current?.edgeId || null;
+    const focusId = hoverId || selectedEdgeIdRef.current || null;
+    focusEdgeIdRef.current = focusId;
+    const edges = edgeObjectsRef.current;
+    const beam = edgeBeamRef.current;
+    const f = focusId ? edges.get(focusId) : null;
+    if (!f) {
+      if (beam) beam.visible = false;
+      return;
+    }
+    edges.forEach((e, id) => {
+      if (id === focusId) return;
+      e.lineMesh.material.color.set(e.defaultColor);
+      e.lineMesh.material.opacity = 0.2;
+      e.pulseMesh.material.opacity = 0.2;
+    });
+    f.lineMesh.material.color.set(0xfdba74);
+    f.lineMesh.material.opacity = 1;
+    f.pulseMesh.material.opacity = 1;
+    if (beam) {
+      const radius = hoverId ? 0.42 : 0.6; // hover: ~2.5x the base beam; selected: thicker still
+      const key = `${focusId}|${radius}`;
+      if (beam.userData.key !== key) {
+        const a = f.start;
+        const b = f.end;
+        const dir = new THREE.Vector3().subVectors(b, a);
+        const len = Math.max(0.01, dir.length());
+        const geo = new THREE.CylinderGeometry(radius, radius, len, 10, 1, true);
+        const c1 = new THREE.Color(0xfb923c);
+        const c2 = new THREE.Color(0xfdba74);
+        const pos = geo.attributes.position;
+        const colors = [];
+        for (let i = 0; i < pos.count; i++) {
+          const t = (pos.getY(i) + len / 2) / len;
+          const c = c1.clone().lerp(c2, t);
+          colors.push(c.r, c.g, c.b);
+        }
+        geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        beam.geometry.dispose();
+        beam.geometry = geo;
+        beam.position.copy(a).add(b).multiplyScalar(0.5);
+        beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+        beam.userData.key = key;
+      }
+      beam.visible = true;
+    }
+  }, []);
 
   // Centralized visual state manager for 3D selection, relationship highlighting, and folder grouping
   const updateVisualHighlights = useCallback((hoverNodeId, hoverEdgeId, selNodeId) => {
@@ -320,7 +399,11 @@ export default function GalaxyGraph3D({
         folder.labelSprite.material.opacity = 0.25;
       }
     });
-  }, []);
+
+    // 4. Astral AI overlay (workflow / blast radius / cluster) is drawn on top of the base state
+    copilotOverlayRef.current?.();
+    applyEdgeFocus();
+  }, [applyEdgeFocus]);
 
   // Initialize Three.js scene once
   useEffect(() => {
@@ -484,6 +567,41 @@ export default function GalaxyGraph3D({
     galaxyGroup.name = 'GALAXY_ROTATION_GROUP';
     scene.add(galaxyGroup);
 
+    // Edge focus packets (pool reused across edges) and the gradient beam
+    const packetGeo = new THREE.SphereGeometry(0.9, 12, 12);
+    for (let k = 0; k < 8; k++) {
+      const pk = new THREE.Mesh(
+        packetGeo,
+        new THREE.MeshBasicMaterial({
+          color: k % 2 ? 0xfdba74 : 0xfb923c,
+          transparent: true,
+          opacity: 1,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      pk.raycast = () => {};
+      pk.visible = false;
+      pk.userData.persistentOverlay = true;
+      galaxyGroup.add(pk);
+      packetPoolRef.current.push(pk);
+    }
+    const beam = new THREE.Mesh(
+      new THREE.BufferGeometry(),
+      new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    beam.raycast = () => {};
+    beam.visible = false;
+    beam.userData.persistentOverlay = true;
+    galaxyGroup.add(beam);
+    edgeBeamRef.current = beam;
+
     // Orbit controls / Mouse interaction
     let isDragging = false;
     let prevMousePos = { x: 0, y: 0 };
@@ -533,14 +651,14 @@ export default function GalaxyGraph3D({
           const nId = hoveredObj.userData?.nodeId;
           hoverTargetRef.current = { nodeId: nId, edgeId: null };
           setHoveredNode(nodeData || null);
-          setHoveredEdgeData(null);
+          setEdgeHover(null);
           updateVisualHighlights(nId, null, selectedNodeIdRef.current);
           mount.style.cursor = 'pointer';
           return;
         }
 
         // 2. Raycast edges if no node hovered
-        raycaster.params.Line = { threshold: 3.5 };
+        raycaster.params.Line = { threshold: Math.max(2.5, camera.position.length() * 0.025) };
         const edgeLines = Array.from(edgeObjectsRef.current.values()).map((o) => o.lineMesh);
         const edgeIntersects = raycaster.intersectObjects(edgeLines);
 
@@ -550,7 +668,17 @@ export default function GalaxyGraph3D({
           const eId = hoveredLine.userData?.edgeId;
           hoverTargetRef.current = { nodeId: null, edgeId: eId };
           setHoveredNode(null);
-          setHoveredEdgeData(edgeData || null);
+          {
+            const mr = mount.getBoundingClientRect();
+            const lab = (id) => nodeMeshesRef.current.get(id)?.userData?.nodeData?.label || String(id).replace(/^file::/, '').split('/').pop();
+            setEdgeHover({
+              rel: edgeData?.relation || 'imports',
+              src: lab(edgeData?.source),
+              tgt: lab(edgeData?.target),
+              x: e.clientX - mr.left,
+              y: e.clientY - mr.top,
+            });
+          }
           updateVisualHighlights(null, eId, selectedNodeIdRef.current);
           mount.style.cursor = 'pointer';
           return;
@@ -560,7 +688,7 @@ export default function GalaxyGraph3D({
         if (hoverTargetRef.current?.nodeId || hoverTargetRef.current?.edgeId) {
           hoverTargetRef.current = null;
           setHoveredNode(null);
-          setHoveredEdgeData(null);
+          setEdgeHover(null);
           updateVisualHighlights(null, null, selectedNodeIdRef.current);
         }
         mount.style.cursor = 'grab';
@@ -603,11 +731,20 @@ export default function GalaxyGraph3D({
       if (intersects.length > 0) {
         const clickedMesh = intersects[0].object;
         if (clickedMesh.userData && clickedMesh.userData.nodeId) {
-          onSelectNode?.(clickedMesh.userData.nodeId);
+          onSelectNodeRef.current?.(clickedMesh.userData.nodeId);
         }
       } else {
-        // Clicking empty space deselects
-        onSelectNode?.(null);
+        // No star under the pointer: a beam click selects that edge; empty space clears both
+        raycaster.params.Line = { threshold: Math.max(2.5, camera.position.length() * 0.025) };
+        const edgeLines = Array.from(edgeObjectsRef.current.values()).map((o) => o.lineMesh);
+        const hitEdge = raycaster.intersectObjects(edgeLines)[0];
+        if (hitEdge) {
+          setEdgeHover(null); // camera reframes; tooltip returns on the next pointer move
+          onSelectEdgeRef.current?.(hitEdge.object.userData?.edgeId ?? null);
+        } else {
+          onSelectNodeRef.current?.(null);
+          onSelectEdgeRef.current?.(null);
+        }
       }
     };
     canvas.addEventListener('click', onClick);
@@ -639,11 +776,56 @@ export default function GalaxyGraph3D({
       // Advance pulse particles
       if (pulsesRef.current && pulsesRef.current.length > 0) {
         pulsesRef.current.forEach((pulse) => {
-          pulse.progress += pulse.speed;
+          const fid = focusEdgeIdRef.current;
+          const mult = fid && pulse.edgeId === fid ? 6 : selectedEdgeIdRef.current && pulse.edgeId === selectedEdgeIdRef.current ? 2.2 : 1;
+          pulse.progress += pulse.speed * mult;
           if (pulse.progress > 1) {
             pulse.progress = 0;
           }
           pulse.mesh.position.lerpVectors(pulse.start, pulse.end, pulse.progress);
+        });
+      }
+
+      // Arrowheads follow each line's highlight color/opacity and scale with camera distance
+      {
+        const zoomScale = Math.min(3.2, Math.max(0.9, camera.position.length() / 130));
+        edgeObjectsRef.current.forEach((eo) => {
+          const am = eo.arrowMesh;
+          if (!am) return;
+          am.material.color.copy(eo.lineMesh.material.color);
+          am.material.opacity = Math.min(1, eo.lineMesh.material.opacity + 0.35);
+          am.scale.setScalar(zoomScale);
+        });
+      }
+
+      // Astral AI overlay animations (data pulses, shockwave rings)
+      if (copilotAnimRef.current.length > 0) {
+        const tNow = performance.now() / 1000;
+        copilotAnimRef.current.forEach((fn) => fn(tNow));
+      }
+
+      // Edge focus packets: high-velocity energy along Source → Target
+      const tEdge = performance.now() / 1000;
+      const pool = packetPoolRef.current;
+      const fe = focusEdgeIdRef.current ? edgeObjectsRef.current.get(focusEdgeIdRef.current) : null;
+      if (fe && pool.length) {
+        pool.forEach((pk, k) => {
+          const u = (tEdge * 0.55 + k / pool.length) % 1;
+          pk.position.lerpVectors(fe.start, fe.end, u);
+          pk.scale.setScalar(0.9 + 0.35 * Math.sin(tEdge * 10 + k));
+          pk.visible = true;
+        });
+      } else {
+        pool.forEach((pk) => (pk.visible = false));
+      }
+      // Selected-edge endpoint rings: billboard towards camera and breathe
+      if (edgeRingsRef.current.length) {
+        const qInv = galaxyGroup.getWorldQuaternion(new THREE.Quaternion()).invert();
+        const qFace = qInv.multiply(camera.quaternion);
+        edgeRingsRef.current.forEach((r) => {
+          const sc = 6.4 + 1.1 * Math.sin(tEdge * 3 + r.phase);
+          r.mesh.scale.setScalar(sc);
+          r.mesh.quaternion.copy(qFace);
         });
       }
 
@@ -674,7 +856,7 @@ export default function GalaxyGraph3D({
       }
       renderer.dispose();
     };
-  }, [onSelectNode, updateVisualHighlights]);
+  }, [updateVisualHighlights]);
 
   // Populate 3D graph elements ONLY when graphData changes (Preserves scene across selections)
   useEffect(() => {
@@ -684,11 +866,10 @@ export default function GalaxyGraph3D({
     const galaxyGroup = scene.getObjectByName('GALAXY_ROTATION_GROUP');
     if (!galaxyGroup) return;
 
-    // Clear previous children
-    while (galaxyGroup.children.length > 0) {
-      const obj = galaxyGroup.children[0];
-      galaxyGroup.remove(obj);
-    }
+    // Clear previous children (edge-focus beam and packet pool persist across rebuilds)
+    [...galaxyGroup.children].forEach((obj) => {
+      if (!obj.userData?.persistentOverlay) galaxyGroup.remove(obj);
+    });
 
     nodeMeshesRef.current.clear();
     labelSpritesRef.current.clear();
@@ -894,27 +1075,53 @@ export default function GalaxyGraph3D({
     // Step 7: Render Directed Edges & Flowing Data Pulses
     if (Array.isArray(graphData.edges)) {
       const pulseGeom = new THREE.SphereGeometry(0.75, 12, 12);
+      const arrowGeo = new THREE.ConeGeometry(1.15, 3.6, 14);
 
       graphData.edges.forEach((edge, eIdx) => {
         const p1 = nodeCoords.get(edge.source);
         const p2 = nodeCoords.get(edge.target);
         if (p1 && p2) {
-          // Color based on relation schema
-          let defaultColor = 0xf97316; // default orange for imports
+          // Consistent encoding (also in the legend): color + line style + arrowhead + optional label.
+          //   imports = orange solid, calls = sky dashed, structural = purple/green (hidden by default)
+          let defaultColor = 0xf97316;
           if (edge.relation === 'calls') defaultColor = 0x38bdf8;
           else if (edge.relation === 'defines') defaultColor = 0xa855f7;
           else if (edge.relation === 'contains') defaultColor = 0x10b981;
+          const dashed = edge.relation === 'calls';
 
           const edgeGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
-          const edgeMat = new THREE.LineBasicMaterial({
-            color: defaultColor,
-            transparent: true,
-            opacity: 0.35,
-            depthWrite: false,
-          });
+          const edgeMat = dashed
+            ? new THREE.LineDashedMaterial({ color: defaultColor, transparent: true, opacity: 0.62, depthWrite: false, dashSize: 3, gapSize: 2 })
+            : new THREE.LineBasicMaterial({ color: defaultColor, transparent: true, opacity: 0.62, depthWrite: false });
           const line = new THREE.Line(edgeGeo, edgeMat);
+          if (dashed) line.computeLineDistances();
+          line.renderOrder = 2;
           line.userData = { edgeId: edge.id, edgeData: edge };
           galaxyGroup.add(line);
+
+          // Directional arrowhead at the TARGET (importer -> imported, caller -> callee)
+          const dirN = new THREE.Vector3().subVectors(p2, p1);
+          const edgeLen = dirN.length();
+          let arrow = null;
+          if (edgeLen > 1) {
+            dirN.normalize();
+            arrow = new THREE.Mesh(
+              arrowGeo,
+              new THREE.MeshBasicMaterial({ color: defaultColor, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false }),
+            );
+            arrow.position.copy(p2).addScaledVector(dirN, -Math.min(6.4, edgeLen * 0.4));
+            arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirN); // cone tip (+Y) -> target
+            arrow.renderOrder = 4;
+            arrow.raycast = () => {};
+            galaxyGroup.add(arrow);
+          }
+
+          if (showEdgeLabelsRef.current) {
+            const lbl = makeTextSprite(edge.relation || 'imports', { color: '#' + defaultColor.toString(16).padStart(6, '0') });
+            lbl.position.copy(p1).add(p2).multiplyScalar(0.5);
+            lbl.raycast = () => {};
+            galaxyGroup.add(lbl);
+          }
 
           // Flowing pulse particle
           const pulseMat = new THREE.MeshBasicMaterial({
@@ -928,6 +1135,7 @@ export default function GalaxyGraph3D({
           galaxyGroup.add(pulseMesh);
 
           pulsesRef.current.push({
+            edgeId: edge.id,
             mesh: pulseMesh,
             start: p1,
             end: p2,
@@ -937,13 +1145,16 @@ export default function GalaxyGraph3D({
 
           edgeObjectsRef.current.set(edge.id, {
             id: edge.id,
+            start: p1.clone(),
+            end: p2.clone(),
             source: edge.source,
             target: edge.target,
             relation: edge.relation || 'imports',
             lineMesh: line,
             pulseMesh,
+            arrowMesh: arrow,
             defaultColor,
-            defaultOpacity: 0.35,
+            defaultOpacity: 0.62,
           });
         }
       });
@@ -951,7 +1162,14 @@ export default function GalaxyGraph3D({
 
     // Apply active selection / highlights
     updateVisualHighlights(null, null, selectedNodeIdRef.current);
-  }, [graphData, updateVisualHighlights]);
+  }, [graphData, showEdgeLabels, updateVisualHighlights]);
+
+  // Reset camera + selection overlay (driven by the Graph Tools panel)
+  useEffect(() => {
+    if (!resetToken || !cameraRef.current) return;
+    flightTargetRef.current = new THREE.Vector3(0, 45, 140);
+    lookTargetRef.current = new THREE.Vector3(0, 0, 0);
+  }, [resetToken]);
 
   // Synchronize selection changes with visual highlights and smooth camera navigation
   useEffect(() => {
@@ -966,7 +1184,11 @@ export default function GalaxyGraph3D({
         const offsetDir = targetWorldPos.clone().normalize();
         if (offsetDir.lengthSq() < 0.001) offsetDir.set(0, 0, 1);
 
-        const cameraDest = targetWorldPos.clone().add(offsetDir.multiplyScalar(68)).add(new THREE.Vector3(0, 22, 34));
+        const zoom = Math.max(0.5, Math.min(4, copilotFxRef.current?.zoom || 1));
+        const cameraDest = targetWorldPos
+          .clone()
+          .add(offsetDir.multiplyScalar(68 / zoom))
+          .add(new THREE.Vector3(0, 22 / zoom, 34 / zoom));
         flightTargetRef.current = cameraDest;
         lookTargetRef.current = targetWorldPos.clone();
       }
@@ -976,6 +1198,315 @@ export default function GalaxyGraph3D({
       lookTargetRef.current = new THREE.Vector3(0, 0, 0);
     }
   }, [selectedNodeId, updateVisualHighlights]);
+
+  // Fly to a node on demand (also when it is already selected), used by Astral AI `focusCameraOnNode`
+  useEffect(() => {
+    const id = copilotFx?.focusNodeId;
+    if (!copilotFx?.focusToken || !id) return;
+    const mesh = nodeMeshesRef.current.get(id);
+    if (!mesh || !cameraRef.current) return;
+    const targetWorldPos = new THREE.Vector3();
+    mesh.getWorldPosition(targetWorldPos);
+    const offsetDir = targetWorldPos.clone().normalize();
+    if (offsetDir.lengthSq() < 0.001) offsetDir.set(0, 0, 1);
+    const zoom = Math.max(0.5, Math.min(4, copilotFx.zoom || 1));
+    flightTargetRef.current = targetWorldPos
+      .clone()
+      .add(offsetDir.multiplyScalar(68 / zoom))
+      .add(new THREE.Vector3(0, 22 / zoom, 34 / zoom));
+    lookTargetRef.current = targetWorldPos.clone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copilotFx?.focusToken]);
+
+  // Frame a set of nodes (workflow path, blast radius, cluster) in the viewport
+  const fitCameraToNodes = useCallback((ids) => {
+    const cam = cameraRef.current;
+    if (!cam) return;
+    const pts = [];
+    ids.forEach((id) => {
+      const mesh = nodeMeshesRef.current.get(id);
+      if (mesh) {
+        const v = new THREE.Vector3();
+        mesh.getWorldPosition(v);
+        pts.push(v);
+      }
+    });
+    if (!pts.length) return;
+    const center = pts.reduce((a, p) => a.add(p), new THREE.Vector3()).divideScalar(pts.length);
+    const radius = Math.max(18, ...pts.map((p) => p.distanceTo(center)));
+    const dir = cam.position.clone().sub(center);
+    if (dir.lengthSq() < 1) dir.set(0, 0.35, 1);
+    dir.normalize();
+    flightTargetRef.current = center.clone().add(dir.multiplyScalar(Math.min(420, radius * 2.1 + 55)));
+    lookTargetRef.current = center;
+  }, []);
+
+  // Draw the overlay on top of the base highlight state (called at the end of updateVisualHighlights)
+  const applyCopilotOverlay = useCallback(() => {
+    const fx = copilotFxRef.current;
+    if (!fx || (!fx.workflow && !fx.blast && !fx.cluster)) return;
+
+    const meshes = nodeMeshesRef.current;
+    const sprites = labelSpritesRef.current;
+    const edges = edgeObjectsRef.current;
+
+    const paint = (id, o) => {
+      const mesh = meshes.get(id);
+      if (!mesh) return;
+      mesh.scale.setScalar(o.scale ?? 1);
+      mesh.material.transparent = o.opacity < 1;
+      mesh.material.opacity = o.opacity;
+      mesh.material.emissiveIntensity = o.glow;
+      const color = o.color !== undefined ? o.color : mesh.userData.defaultColor;
+      mesh.material.color.set(color);
+      mesh.material.emissive.set(color);
+      const sp = sprites.get(id);
+      if (sp) sp.material.opacity = o.labelOpacity ?? o.opacity;
+    };
+    const paintEdge = (edgeObj, color, lineOpacity, pulseOpacity) => {
+      edgeObj.lineMesh.material.color.set(color !== undefined ? color : edgeObj.defaultColor);
+      edgeObj.lineMesh.material.opacity = lineOpacity;
+      edgeObj.pulseMesh.material.opacity = pulseOpacity;
+    };
+
+    const isCluster = Boolean(fx.cluster);
+    const dimOpacity = isCluster ? 0.15 : 0.12;
+
+    // Baseline: dim everything
+    meshes.forEach((_, id) => paint(id, { opacity: dimOpacity, glow: 0.12 }));
+    edges.forEach((e) => paintEdge(e, undefined, 0.04, 0.04));
+    folderRegionsRef.current.forEach((folder) => {
+      folder.fillMesh.material.opacity = 0.015;
+      folder.outlineMesh.material.opacity = 0.08;
+      folder.labelSprite.material.opacity = 0.25;
+    });
+
+    if (fx.workflow) {
+      const ids = fx.workflow.nodeIds;
+      ids.forEach((id, i) =>
+        paint(id, {
+          opacity: 1,
+          glow: 1.35,
+          scale: i === 0 ? 1.5 : 1.3,
+          color: i === 0 ? 0xfdba74 : 0xfb923c,
+        }),
+      );
+      for (let i = 0; i < ids.length - 1; i++) {
+        edges.forEach((e) => {
+          if ((e.source === ids[i] && e.target === ids[i + 1]) || (e.source === ids[i + 1] && e.target === ids[i])) {
+            paintEdge(e, 0xfb923c, 1, 1);
+          }
+        });
+      }
+    } else if (fx.blast) {
+      const { sourceId, affected } = fx.blast;
+      const depthOf = new Map(affected.map((a) => [a.id, a.depth]));
+      const depthColor = (d) => (d <= 1 ? 0xef4444 : d === 2 ? 0xf97316 : 0xfbbf24);
+      paint(sourceId, { opacity: 1, glow: 1.7, scale: 1.6, color: 0xef4444 });
+      affected.forEach((a) => paint(a.id, { opacity: 1, glow: 1.25, scale: 1.25, color: depthColor(a.depth) }));
+      edges.forEach((e) => {
+        const tgtIn = e.target === sourceId || depthOf.has(e.target);
+        const srcIn = e.source === sourceId || depthOf.has(e.source);
+        if (tgtIn && srcIn) paintEdge(e, 0xf59e0b, 0.95, 1);
+      });
+    } else if (fx.cluster) {
+      const set = new Set(fx.cluster.nodeIds);
+      set.forEach((id) => paint(id, { opacity: 1, glow: 0.95, scale: 1.1 }));
+      edges.forEach((e) => {
+        const a = set.has(e.source);
+        const b = set.has(e.target);
+        if (a && b) paintEdge(e, undefined, 0.85, 1);
+        else if (a || b) paintEdge(e, undefined, 0.08, 0.08);
+      });
+      folderRegionsRef.current.forEach((folder) => {
+        if (folder.cPath === fx.cluster.key) {
+          folder.fillMesh.material.opacity = 0.12;
+          folder.outlineMesh.material.opacity = 0.6;
+          folder.labelSprite.material.opacity = 1;
+        }
+      });
+    }
+  }, []);
+  copilotOverlayRef.current = applyCopilotOverlay;
+
+  // Build / tear down the animated overlay objects (path pulses, shockwave rings)
+  const fxWorkflow = copilotFx?.workflow || null;
+  const fxBlast = copilotFx?.blast || null;
+  const fxCluster = copilotFx?.cluster || null;
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const group = scene?.getObjectByName('GALAXY_ROTATION_GROUP');
+    const created = [];
+    const anim = [];
+
+    if (group) {
+      const meshes = nodeMeshesRef.current;
+
+      if (fxWorkflow) {
+        const pts = fxWorkflow.nodeIds
+          .map((id) => meshes.get(id))
+          .filter(Boolean)
+          .map((m) => m.position.clone());
+        if (pts.length >= 2) {
+          const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+          const lineMat = new THREE.LineBasicMaterial({
+            color: 0xfb923c,
+            transparent: true,
+            opacity: 0.95,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          });
+          const line = new THREE.Line(lineGeo, lineMat);
+          line.raycast = () => {};
+          group.add(line);
+          created.push(line);
+
+          const cum = [0];
+          for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+          const total = cum[cum.length - 1] || 1;
+
+          const PULSES = 4;
+          for (let k = 0; k < PULSES; k++) {
+            const core = new THREE.Mesh(
+              new THREE.SphereGeometry(0.95, 16, 16),
+              new THREE.MeshBasicMaterial({ color: 0xfff1e0 }),
+            );
+            const halo = new THREE.Mesh(
+              new THREE.SphereGeometry(2.4, 16, 16),
+              new THREE.MeshBasicMaterial({
+                color: 0xfb923c,
+                transparent: true,
+                opacity: 0.38,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+              }),
+            );
+            core.add(halo);
+            core.raycast = () => {};
+            halo.raycast = () => {};
+            group.add(core);
+            created.push(core);
+            anim.push((t) => {
+              const u = (t * 0.17 + k / PULSES) % 1;
+              const d = u * total;
+              let seg = 1;
+              while (seg < cum.length - 1 && cum[seg] < d) seg++;
+              const span = cum[seg] - cum[seg - 1] || 1;
+              core.position.lerpVectors(pts[seg - 1], pts[seg], Math.min(1, Math.max(0, (d - cum[seg - 1]) / span)));
+              core.scale.setScalar(1 + 0.25 * Math.sin(t * 8 + k * 1.7));
+            });
+          }
+          fitCameraToNodes(fxWorkflow.nodeIds);
+        }
+      } else if (fxBlast) {
+        const src = meshes.get(fxBlast.sourceId);
+        if (src) {
+          const origin = src.position.clone();
+          let maxR = 24;
+          fxBlast.affected.forEach((a) => {
+            const m = meshes.get(a.id);
+            if (m) maxR = Math.max(maxR, origin.distanceTo(m.position));
+          });
+          const reach = maxR * 1.12 + 8;
+          const qWorld = new THREE.Quaternion();
+          const RINGS = 3;
+          for (let k = 0; k < RINGS; k++) {
+            const ring = new THREE.Mesh(
+              new THREE.RingGeometry(0.93, 1, 96),
+              new THREE.MeshBasicMaterial({
+                color: k % 2 ? 0xf97316 : 0xef4444,
+                transparent: true,
+                opacity: 0.8,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+              }),
+            );
+            ring.position.copy(origin);
+            ring.raycast = () => {};
+            group.add(ring);
+            created.push(ring);
+            anim.push((t) => {
+              const phase = (t * 0.42 + k / RINGS) % 1;
+              const s = 2 + phase * reach;
+              ring.scale.set(s, s, s);
+              ring.material.opacity = Math.pow(1 - phase, 1.6) * 0.85;
+              // billboard the ring towards the camera inside the rotating group
+              const cam = cameraRef.current;
+              if (cam) {
+                group.getWorldQuaternion(qWorld).invert();
+                ring.quaternion.copy(qWorld.multiply(cam.quaternion));
+              }
+            });
+          }
+          fitCameraToNodes([fxBlast.sourceId, ...fxBlast.affected.map((a) => a.id)]);
+        }
+      } else if (fxCluster) {
+        fitCameraToNodes(fxCluster.nodeIds);
+      }
+    }
+
+    copilotAnimRef.current = anim;
+    // Restore the base highlight state and (if active) draw the overlay on top
+    updateVisualHighlights(hoverTargetRef.current?.nodeId, hoverTargetRef.current?.edgeId, selectedNodeIdRef.current);
+
+    return () => {
+      copilotAnimRef.current = [];
+      created.forEach((obj) => {
+        obj.parent?.remove(obj);
+        obj.traverse((child) => {
+          child.geometry?.dispose?.();
+          child.material?.dispose?.();
+        });
+      });
+    };
+  }, [fxWorkflow, fxBlast, fxCluster, graphData, fitCameraToNodes, updateVisualHighlights]);
+
+  // Selected beam: frame both endpoints, add orbital rings, and repaint the highlight pass
+  useEffect(() => {
+    selectedEdgeIdRef.current = selectedEdgeId || null;
+    const group = sceneRef.current?.getObjectByName('GALAXY_ROTATION_GROUP');
+    edgeRingsRef.current.forEach((r) => {
+      r.mesh.parent?.remove(r.mesh);
+      r.mesh.geometry.dispose();
+      r.mesh.material.dispose();
+    });
+    edgeRingsRef.current = [];
+
+    const f = selectedEdgeId ? edgeObjectsRef.current.get(selectedEdgeId) : null;
+    if (f && group) {
+      [f.start, f.end].forEach((p, i) => {
+        const mesh = new THREE.Mesh(
+          new THREE.RingGeometry(0.9, 1, 64),
+          new THREE.MeshBasicMaterial({
+            color: i ? 0xfdba74 : 0xfb923c,
+            transparent: true,
+            opacity: 0.9,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          }),
+        );
+        mesh.position.copy(p);
+        mesh.raycast = () => {};
+        group.add(mesh);
+        edgeRingsRef.current.push({ mesh, phase: i * Math.PI });
+      });
+
+      const cam = cameraRef.current;
+      if (cam) {
+        const mid = f.start.clone().add(f.end).multiplyScalar(0.5);
+        const span = f.start.distanceTo(f.end);
+        const dir = cam.position.clone().sub(mid);
+        if (dir.lengthSq() < 1) dir.set(0, 0.35, 1);
+        dir.normalize();
+        flightTargetRef.current = mid.clone().add(dir.multiplyScalar(Math.max(70, span * 1.6 + 60)));
+        lookTargetRef.current = mid;
+      }
+    }
+
+    updateVisualHighlights(hoverTargetRef.current?.nodeId, hoverTargetRef.current?.edgeId, selectedNodeIdRef.current);
+  }, [selectedEdgeId, graphData, updateVisualHighlights]);
 
   return (
     <div className={`relative w-full h-full overflow-hidden ${className}`}>
@@ -1000,32 +1531,24 @@ export default function GalaxyGraph3D({
         </div>
       )}
 
-      {/* Floating Edge Tooltip HUD on Hover */}
-      {hoveredEdgeData && (
-        <div
-          className="absolute bottom-6 left-6 pointer-events-none p-3 rounded bg-slate-900/90 border border-amber-400/40 text-xs font-mono text-white shadow-xl backdrop-blur-md flex flex-col gap-1 z-30"
-          style={{ maxWidth: '340px' }}
-        >
-          <div className="flex items-center justify-between text-amber-300 font-bold border-b border-white/10 pb-1">
-            <span className="uppercase text-[11px] tracking-wider">{hoveredEdgeData.relation || 'imports'}</span>
-            <span className="text-[10px] text-gray-400">Dependency Edge</span>
+      {/* Floating micro-tooltip that follows the cursor over a dependency beam */}
+      {edgeHover && (
+        <div className="astral-edge-tip" style={{ left: edgeHover.x + 16, top: edgeHover.y + 16 }}>
+          <div className="astral-edge-tip__row">
+            <span className="astral-edge-tip__node">[ {edgeHover.src} ]</span>
+            <span className="astral-edge-tip__beam">━━( {edgeHover.rel} )━━▶</span>
+            <span className="astral-edge-tip__node">[ {edgeHover.tgt} ]</span>
           </div>
-          <div className="text-gray-300 text-[11px] flex items-center gap-1.5 mt-1">
-            <span className="text-amber-400 font-semibold">{hoveredEdgeData.source.replace('file::', '')}</span>
-            <span className="text-gray-500">→</span>
-            <span className="text-cyan-400 font-semibold">{hoveredEdgeData.target.replace('file::', '')}</span>
-          </div>
+          <div className="astral-edge-tip__sub">Click to inspect live data flow &amp; payload →</div>
         </div>
       )}
 
-      {/* Legend / Overlay */}
-      <div className="absolute top-4 right-4 pointer-events-none bg-black/60 border border-white/10 p-2.5 rounded text-xs font-mono space-y-1.5 backdrop-blur-sm z-20">
-        <div className="text-gray-400 text-[10px] uppercase font-bold tracking-wider">Node & Region Types</div>
-        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#00e5ff]" /> directory / services</div>
-        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#38bdf8]" /> file / utils</div>
-        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#f43f5e]" /> src / core</div>
-        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#fb923c]" /> engine / outgoing</div>
-        <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-[#10b981]" /> models / schemas</div>
+      {/* Legend: relationship encoding (color + line style + arrowhead), not color alone */}
+      <div className="absolute top-4 right-4 pointer-events-none bg-black/70 border border-white/10 p-2.5 rounded text-xs font-mono space-y-1.5 backdrop-blur-sm z-20" aria-label="Graph legend">
+        <div className="text-gray-400 text-[10px] uppercase font-bold tracking-wider">Edges (arrow = direction)</div>
+        <div className="flex items-center gap-2"><span style={{ color: '#f97316' }}>━━▶</span> imports (solid): A imports B</div>
+        <div className="flex items-center gap-2"><span style={{ color: '#38bdf8' }}>╌╌▶</span> calls (dashed): A calls B</div>
+        <div className="text-gray-500 text-[10px]">Folders are visual groups, never endpoints. Unresolved imports are listed in the panel, not drawn.</div>
       </div>
     </div>
   );
