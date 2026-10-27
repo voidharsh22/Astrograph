@@ -116,9 +116,10 @@ export function normalizeGraphData(rawData) {
 
     // Extract metrics safely
     const metrics = {
-      loc: raw.metrics?.loc ?? raw.metadata?.loc ?? 100,
-      centrality: raw.metrics?.centrality ?? raw.metadata?.centrality ?? 0.5,
-      complexity: raw.metrics?.complexity ?? raw.metadata?.complexity ?? 5,
+      // Real values only; missing metrics stay null (never invented defaults).
+      loc: raw.metrics?.loc ?? raw.metadata?.loc ?? null,
+      centrality: raw.metrics?.centrality ?? raw.metadata?.centrality ?? null,
+      complexity: raw.metrics?.complexity ?? raw.metadata?.complexity ?? null,
       cluster_id: raw.position_hint?.cluster_id ?? raw.metadata?.cluster_id ?? 0,
     };
 
@@ -129,7 +130,9 @@ export function normalizeGraphData(rawData) {
       path: cleanPath,
       cluster: clusterPath,
       type: raw.type || 'file',
-      language: raw.language || raw.metadata?.language || 'python',
+      language: String(raw.language || raw.metadata?.language || 'unknown').toLowerCase(),
+      line: raw.metadata?.lineno ?? null,
+      end_line: raw.metadata?.end_lineno ?? null,
       metrics,
       ai_summary: raw.ai_summary || raw.metadata?.ai_summary || null,
       position_hint: raw.position_hint || { cluster_id: metrics.cluster_id, depth: 1 },
@@ -195,9 +198,10 @@ export function normalizeGraphData(rawData) {
     let normRelation = 'imports';
     if (relation.includes('call')) normRelation = 'calls';
     else if (relation.includes('define')) normRelation = 'defines';
-    else if (relation.includes('contain') || relation.includes('use')) normRelation = 'contains';
+    else if (relation.includes('contain')) normRelation = 'contains';
     else if (relation.includes('import')) normRelation = 'imports';
     else normRelation = relation;
+    const meta = rawEdge.metadata || {};
 
     const isCrossCluster = sourceNode.cluster !== targetNode.cluster;
 
@@ -210,6 +214,12 @@ export function normalizeGraphData(rawData) {
       relation: normRelation,
       weight: rawEdge.weight ?? 1.0,
       is_cross_cluster: isCrossCluster,
+      // Parser-provided facts, preserved for hover/inspector display.
+      lines: meta.lines || (meta.line ? [meta.line] : []),
+      module: meta.module ?? null,
+      imported_name: meta.imported_name ?? meta.callee ?? null,
+      resolution_status: meta.resolution_status || (rawEdge.metadata ? 'resolved' : 'unknown'),
+      structural: normRelation === 'defines' || normRelation === 'contains',
     });
   });
 
@@ -226,6 +236,8 @@ export function normalizeGraphData(rawData) {
     nodes: uniqueNodes,
     edges: normalizedEdges,
     clusters: clusterList,
+    repository_id: rawData.repository_id || null,
+    unresolved_references: Array.isArray(rawData.unresolved_references) ? rawData.unresolved_references : [],
     summary: {
       totalFiles: uniqueNodes.length,
       totalDependencies: normalizedEdges.length,
