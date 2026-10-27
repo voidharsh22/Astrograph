@@ -6,6 +6,13 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+
+# backend/.env, resolved from this file so it loads regardless of the working directory.
+# Real environment variables take precedence over the file (override=False).
+ENV_FILE: Path = Path(__file__).resolve().parents[1] / ".env"
+ENV_FILE_LOADED: bool = load_dotenv(ENV_FILE, override=False) if ENV_FILE.exists() else False
+
 
 class Settings:
     """Application settings loaded from environment variables with safe defaults."""
@@ -49,6 +56,16 @@ class Settings:
         # AI and Gemini Configuration
         self.gemini_api_key: str = os.environ.get("GEMINI_API_KEY", "")
         self.gemini_model: str = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
+
+        # Astral AI Copilot (Anthropic Claude) - key stays server-side, never sent to the browser
+        self.anthropic_api_key: str = os.environ.get("ANTHROPIC_API_KEY", "")
+        self.anthropic_model: str = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5")
+
+        # Provider selection: "gemini" | "anthropic" | "" (auto: first provider with a key)
+        self.ai_provider: str = os.environ.get("AI_PROVIDER", "").strip().lower()
+        self.ai_timeout_seconds: float = float(os.environ.get("AI_TIMEOUT_SECONDS", "60"))
+        self.ai_max_output_tokens: int = int(os.environ.get("AI_MAX_OUTPUT_TOKENS", "2048"))
+        self.ai_max_context_chars: int = int(os.environ.get("AI_MAX_CONTEXT_CHARS", "24000"))
 
     @property
     def db_path(self) -> Path:

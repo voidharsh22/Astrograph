@@ -26,12 +26,16 @@ from app.storage.repository_store import (
     create_repository,
     get_job,
     get_repository,
+    delete_repository_records,
     get_repository_by_url_and_branch,
+    get_repository_exact,
     list_repositories,
     update_repository_status,
 )
 
 logger = logging.getLogger(__name__)
+
+BRANCH_PATTERN = re.compile(r"[A-Za-z0-9._/\-]{1,100}")
 
 SENSITIVE_FILENAME_PATTERNS: tuple[str, ...] = (
     ".env",
@@ -56,6 +60,8 @@ def submit_repository_for_indexing(
 ) -> tuple[RepositoryRecord, JobRecord]:
     """Validate, register, and queue a repository for indexing."""
     owner, repo_name = extract_github_owner_and_repo(url)
+    if not BRANCH_PATTERN.fullmatch(branch or "") or ".." in branch:
+        raise ValueError("Invalid branch name")
     canonical_url = f"https://github.com/{owner}/{repo_name}"
 
     existing = get_repository_by_url_and_branch(canonical_url, branch, db_path=db_path)
@@ -468,7 +474,11 @@ def submit_zip_for_indexing(
 
     clean_name = repo_name or Path(filename).stem or "uploaded_repository"
     clean_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", clean_name)
-    repo_id = f"repo_{uuid.uuid4().hex[:12]}"
+    canonical_url = f"upload://{clean_name}"
+    existing = get_repository_by_url_and_branch(canonical_url, branch, db_path=db_path)
+    if existing and existing.status in ("queued", "running"):
+        raise ValueError("An upload with this name is already being indexed")
+    repo_id = existing.id if existing else f"repo_{uuid.uuid4().hex[:12]}"
     job_id = f"job_{uuid.uuid4().hex[:12]}"
 
     workspace_dir = str(settings.get_repo_source_dir(repo_id))
@@ -480,18 +490,22 @@ def submit_zip_for_indexing(
         f.write(file_bytes)
     temp_zip_path = Path(temp_zip_str)
 
-    repo_record = create_repository(
-        repo_id=repo_id,
-        url=canonical_url,
-        owner="user",
-        name=clean_name,
-        branch=branch,
-        workspace_dir=workspace_dir,
-        artifact_dir=artifact_dir,
-        status="queued",
-        current_job_id=job_id,
-        db_path=db_path,
-    )
+    if existing:
+        update_repository_status(repo_id, status="queued", current_job_id=job_id, error_message=None, db_path=db_path)
+        repo_record = get_repository_exact(repo_id, db_path=db_path)
+    else:
+        repo_record = create_repository(
+            repo_id=repo_id,
+            url=canonical_url,
+            owner="user",
+            name=clean_name,
+            branch=branch,
+            workspace_dir=workspace_dir,
+            artifact_dir=artifact_dir,
+            status="queued",
+            current_job_id=job_id,
+            db_path=db_path,
+        )
     job_record = create_job(job_id=job_id, repo_id=repo_id, db_path=db_path)
 
     indexing_service.submit_job(
@@ -503,3 +517,19 @@ def submit_zip_for_indexing(
     )
 
     return repo_record, job_record
+
+
+def delete_repository(repo_id: str, db_path: Optional[Path] = None) -> None:
+    """Delete DB records (jobs/analyses cascade) and on-disk workspace; refuses while indexing."""
+    import shutil
+
+    from app.services.repository_graph_cache import repository_graph_cache
+
+    repo = get_repository_exact(repo_id, db_path=db_path)
+    if not repo:
+        raise FileNotFoundError(f"Repository '{repo_id}' not found")
+    if repo.status in ("queued", "running"):
+        raise ValueError("Repository is currently being indexed; wait for it to finish before deleting")
+    delete_repository_records(repo.id, db_path=db_path)
+    repository_graph_cache.invalidate(repo.id)
+    shutil.rmtree(settings.get_repo_dir(repo.id), ignore_errors=True)

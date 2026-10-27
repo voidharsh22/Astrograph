@@ -1,16 +1,18 @@
-"""Unified AI client adapter for Google Gemini with structured heuristic fallbacks.
+"""Provider-aware LLM client for Astrograph (Gemini or Anthropic Claude).
 
-Provides resilient, repository-grounded AI completions for Codebase Q&A,
-Cluster Summaries, and Workflow Naming with context limits, timeouts, and
-graceful offline degradation.
+The provider and key come from the backend environment (``backend/.env``). The key
+is only ever used server-side, is never logged or returned, and is scrubbed from
+every error message. When AI is unavailable the client raises :class:`AIError`
+with an actionable code; it never fabricates an answer.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 
 import httpx
 
@@ -19,178 +21,299 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta/models"
-REQUEST_TIMEOUT_SECONDS: float = 15.0
+ANTHROPIC_URL: str = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION: str = "2023-06-01"
+MAX_RETRIES: int = 2
+MAX_CONCURRENT_REQUESTS: int = 4
+
+_PLACEHOLDER = re.compile(r"^(your[-_ ]|changeme|xxx|<)", re.IGNORECASE)
+
+
+class AIError(Exception):
+    """Structured AI failure that routes can return to the client verbatim."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        status_code: int = 502,
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+        self.retryable = retryable
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"code": self.code, "message": self.message, "retryable": self.retryable}
+
+
+def _valid_key(key: str) -> bool:
+    key = (key or "").strip()
+    return len(key) > 8 and not _PLACEHOLDER.match(key)
+
+
+def _key_for(provider: str) -> str:
+    return (settings.gemini_api_key if provider == "gemini" else settings.anthropic_api_key).strip()
+
+
+def _model_for(provider: str) -> str:
+    return settings.gemini_model if provider == "gemini" else settings.anthropic_model
+
+
+def configured_provider() -> Optional[str]:
+    """Return the active provider name, or None when no usable key is configured."""
+    preferred = settings.ai_provider
+    order = [preferred] if preferred in ("gemini", "anthropic") else []
+    order += [p for p in ("gemini", "anthropic") if p not in order]
+    for provider in order:
+        if _valid_key(_key_for(provider)):
+            return provider
+    return None
 
 
 def has_gemini_key() -> bool:
-    """Return True if a non-placeholder Gemini API key is configured."""
-    key = (settings.gemini_api_key or "").strip()
-    return bool(key and key != "your-gemini-api-key-here" and len(key) > 5)
+    return _valid_key(settings.gemini_api_key)
+
+
+def ai_status() -> dict[str, Any]:
+    """Report availability without exposing any secret."""
+    provider = configured_provider()
+    if provider is None:
+        return {
+            "configured": False,
+            "provider": None,
+            "model": None,
+            "reason": "No AI key found. Set GEMINI_API_KEY (or ANTHROPIC_API_KEY) in backend/.env and restart the backend.",
+        }
+    return {"configured": True, "provider": provider, "model": _model_for(provider), "reason": None}
+
+
+def _scrub(text: str) -> str:
+    """Remove any configured key from text before it is logged or returned."""
+    for key in (settings.gemini_api_key, settings.anthropic_api_key):
+        key = (key or "").strip()
+        if key and len(key) > 8:
+            text = text.replace(key, "[redacted]")
+    return text[:500]
+
+
+def _error_from_response(provider: str, status: int, body: bytes, retry_after: Optional[str]) -> AIError:
+    detail = ""
+    try:
+        parsed = json.loads(body or b"{}")
+        err = parsed.get("error", parsed)
+        detail = err.get("message", "") if isinstance(err, dict) else str(err)
+    except Exception:  # noqa: BLE001 - best-effort parse of provider error body
+        detail = ""
+    detail = _scrub(detail)
+    lowered = detail.lower()
+    name = "Gemini" if provider == "gemini" else "Claude"
+
+    if status in (401, 403) or "api key not valid" in lowered or "api_key_invalid" in lowered:
+        return AIError(
+            "ai_key_rejected",
+            f"The {name} API key in backend/.env was rejected by the provider. Check that it is valid and has access to model '{_model_for(provider)}'.",
+            status_code=502,
+        )
+    if status == 429 or "resource_exhausted" in lowered or "quota" in lowered or "rate limit" in lowered:
+        wait = f" Retry in about {retry_after}s." if retry_after and retry_after.isdigit() else ""
+        if "quota" in lowered or "billing" in lowered or "credit" in lowered:
+            return AIError(
+                "ai_quota_exceeded",
+                f"The {name} quota or credits for this key are exhausted. Check the provider's billing/usage page.",
+                status_code=429,
+            )
+        return AIError("ai_rate_limited", f"The {name} API is rate limiting requests.{wait}", 429, True)
+    if status == 402 or "credit balance" in lowered or "billing" in lowered:
+        return AIError(
+            "ai_quota_exceeded",
+            f"The {name} account has no remaining credits. Add credits or use another key.",
+            status_code=402,
+        )
+    if status == 404:
+        return AIError(
+            "ai_model_not_found",
+            f"Model '{_model_for(provider)}' was not found for {name}. Fix GEMINI_MODEL/ANTHROPIC_MODEL in backend/.env.",
+            status_code=502,
+        )
+    if status == 400:
+        return AIError("ai_bad_request", f"{name} rejected the request: {detail or 'bad request'}", 502)
+    if status >= 500:
+        return AIError("ai_provider_unavailable", f"{name} is temporarily unavailable (HTTP {status}).", 502, True)
+    return AIError("ai_provider_error", f"{name} returned HTTP {status}. {detail}".strip(), 502)
+
+
+Message = dict[str, str]  # {"role": "user"|"assistant", "content": str}
 
 
 class AIClient:
-    """Resilient client adapter communicating with Gemini or using deterministic heuristics."""
+    """Streams or completes chat requests against the configured provider."""
 
-    def __init__(self, timeout: float = REQUEST_TIMEOUT_SECONDS) -> None:
-        self.timeout = timeout
+    def __init__(self) -> None:
+        self._semaphore: Optional[asyncio.Semaphore] = None
 
-    async def _call_gemini_rest(
-        self,
-        prompt: str,
-        system_instruction: Optional[str] = None,
-        temperature: float = 0.2,
-        max_output_tokens: int = 1000,
-    ) -> Optional[str]:
-        """Make an asynchronous HTTP POST request to Google Gemini API."""
-        if not has_gemini_key():
-            return None
+    def _sem(self) -> asyncio.Semaphore:
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+        return self._semaphore
 
-        model = settings.gemini_model or "gemini-3.1-flash-lite"
-        url = f"{GEMINI_API_URL}/{model}:generateContent"
-        headers = {
-            "x-goog-api-key": settings.gemini_api_key.strip(),
-            "Content-Type": "application/json",
-        }
-
-        contents: list[dict[str, Any]] = []
-        if system_instruction:
-            contents.append({"role": "user", "parts": [{"text": f"System Directive:\n{system_instruction}"}]})
-            contents.append({"role": "model", "parts": [{"text": "Understood. I will strictly follow these directives."}]})
-
-        contents.append({"role": "user", "parts": [{"text": prompt}]})
-
+    # ------------------------------------------------------------------ requests
+    def _gemini_request(
+        self, system: str, messages: list[Message], max_tokens: int, temperature: float, json_mode: bool
+    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+        url = f"{GEMINI_API_URL}/{settings.gemini_model}:streamGenerateContent?alt=sse"
+        headers = {"x-goog-api-key": settings.gemini_api_key.strip(), "Content-Type": "application/json"}
+        generation: dict[str, Any] = {"temperature": temperature, "maxOutputTokens": max_tokens}
+        if json_mode:
+            generation["responseMimeType"] = "application/json"
         payload = {
-            "contents": contents,
-            "generationConfig": {
-                "temperature": temperature,
-                "maxOutputTokens": max_output_tokens,
-            },
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [
+                {"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
+                for m in messages
+            ],
+            "generationConfig": generation,
         }
+        return url, headers, payload
 
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                res = await client.post(url, json=payload, headers=headers)
-                if res.status_code == 200:
-                    data = res.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        if parts:
-                            return parts[0].get("text", "").strip()
-                else:
-                    logger.warning(
-                        "Gemini API returned status %d: %s",
-                        res.status_code,
-                        res.text[:200],
-                    )
-        except Exception as exc:
-            logger.warning("Gemini API request failed (%s); falling back to heuristic", exc)
+    def _anthropic_request(
+        self, system: str, messages: list[Message], max_tokens: int, temperature: float
+    ) -> tuple[str, dict[str, str], dict[str, Any]]:
+        headers = {
+            "x-api-key": settings.anthropic_api_key.strip(),
+            "anthropic-version": ANTHROPIC_VERSION,
+            "content-type": "application/json",
+        }
+        payload = {
+            "model": settings.anthropic_model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "system": system,
+            "messages": messages,
+            "stream": True,
+        }
+        return ANTHROPIC_URL, headers, payload
 
-        return None
-
-    async def generate_chat_answer(
-        self,
-        question: str,
-        context: str,
-        candidate_node_ids: list[str],
-        relevant_files: list[str],
-        relevant_symbols: list[str],
-    ) -> tuple[str, list[str], str]:
-        """Synthesize a structured Q&A response grounded in graph and source context."""
-        system_prompt = (
-            "You are Astrograph's Codebase Intelligence Agent. Explain architectural mechanisms, "
-            "components, and execution flows within the codebase based solely on the provided topological "
-            "graph context and code snippets.\n\n"
-            "Format your answer in clear markdown.\n"
-            "Return a JSON object at the very end enclosed in ```json and ``` with:\n"
-            '{"highlighted_node_ids": ["<id1>", "<id2>"]}\n'
-            "Only include node IDs that appear in the candidate list and are directly relevant."
-        )
-
-        user_prompt = (
-            f"Question: {question}\n\n"
-            f"Candidate Node IDs: {candidate_node_ids}\n\n"
-            f"Topological Graph Context & Source Snippets:\n{context}"
-        )
-
-        try:
-            raw_response = await self._call_gemini_rest(
-                prompt=user_prompt,
-                system_instruction=system_prompt,
-                temperature=0.2,
-                max_output_tokens=1500,
+    @staticmethod
+    def _gemini_text(event: dict[str, Any]) -> str:
+        feedback = event.get("promptFeedback") or {}
+        if feedback.get("blockReason"):
+            raise AIError(
+                "ai_blocked",
+                f"Gemini blocked the request ({feedback['blockReason']}). Try rephrasing the question.",
+                422,
             )
-        except Exception as exc:
-            logger.warning("Gemini API call failed (%s); falling back to heuristic", exc)
-            raw_response = None
+        out = []
+        for cand in event.get("candidates", [])[:1]:
+            for part in (cand.get("content") or {}).get("parts", []):
+                if isinstance(part.get("text"), str):
+                    out.append(part["text"])
+        return "".join(out)
 
-        if raw_response:
-            answer = raw_response
-            highlighted: list[str] = []
+    async def _stream_once(
+        self, provider: str, system: str, messages: list[Message], max_tokens: int, temperature: float, json_mode: bool
+    ) -> AsyncIterator[str]:
+        if provider == "gemini":
+            url, headers, payload = self._gemini_request(system, messages, max_tokens, temperature, json_mode)
+        else:
+            url, headers, payload = self._anthropic_request(system, messages, max_tokens, temperature)
+        timeout = httpx.Timeout(settings.ai_timeout_seconds, connect=10.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", url, headers=headers, json=payload) as resp:
+                    if resp.status_code != 200:
+                        body = await resp.aread()
+                        raise _error_from_response(provider, resp.status_code, body, resp.headers.get("retry-after"))
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if not raw or raw == "[DONE]":
+                            continue
+                        try:
+                            event = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        if provider == "gemini":
+                            text = self._gemini_text(event)
+                        elif event.get("type") == "content_block_delta":
+                            text = (event.get("delta") or {}).get("text", "")
+                        elif event.get("type") == "error":
+                            raise AIError(
+                                "ai_provider_error",
+                                _scrub((event.get("error") or {}).get("message", "Claude stream error")),
+                                502,
+                                True,
+                            )
+                        else:
+                            text = ""
+                        if text:
+                            yield text
+        except httpx.TimeoutException as exc:
+            raise AIError("ai_timeout", "The AI provider did not respond in time. Try again.", 504, True) from exc
+        except httpx.HTTPError as exc:
+            raise AIError(
+                "ai_unreachable",
+                f"Could not reach the AI provider from the Astrograph backend ({type(exc).__name__}).",
+                502,
+                True,
+            ) from exc
 
-            # Extract JSON block for highlighted node IDs if present
-            json_match = re.search(r"```json\s*(\{.*?\})\s*```", raw_response, re.DOTALL)
-            if json_match:
-                try:
-                    parsed = json.loads(json_match.group(1))
-                    raw_ids = parsed.get("highlighted_node_ids", [])
-                    highlighted = [nid for nid in raw_ids if nid in candidate_node_ids]
-                    # Clean answer text from trailing JSON block
-                    answer = raw_response[:json_match.start()].strip()
-                except Exception:
-                    pass
-
-            if not highlighted:
-                highlighted = candidate_node_ids[:4]
-
-            active_model = settings.gemini_model or "gemini-3.1-flash-lite"
-            return answer, highlighted, active_model
-
-        # Deterministic Heuristic Fallback (offline or missing API credentials)
-        ans, h_nodes = self._heuristic_chat_answer(
-            question=question,
-            candidate_node_ids=candidate_node_ids,
-            relevant_files=relevant_files,
-            relevant_symbols=relevant_symbols,
-        )
-        return ans, h_nodes, "static-heuristic-engine"
-
-    def _heuristic_chat_answer(
+    async def stream_text(
         self,
-        question: str,
-        candidate_node_ids: list[str],
-        relevant_files: list[str],
-        relevant_symbols: list[str],
-    ) -> tuple[str, list[str]]:
-        """Generate high-precision architectural explanation without external model calls."""
-        lines = [
-            f"### Codebase Architectural Analysis for: *{question}*\n",
-            "> [!NOTE]\n"
-            "> *Statically Inferred Architecture (Offline Heuristic Mode — AI model response was unconfigured or unavailable)*\n",
-            "Based on the static dependency topology, symbol indices, and graph structure:\n",
-        ]
+        system: str,
+        messages: list[Message],
+        max_tokens: Optional[int] = None,
+        temperature: float = 0.2,
+        json_mode: bool = False,
+    ) -> AsyncIterator[str]:
+        """Yield text deltas. Retries transient failures only before any text was emitted."""
+        provider = configured_provider()
+        if provider is None:
+            raise AIError("ai_not_configured", ai_status()["reason"], 503)
+        limit = max_tokens or settings.ai_max_output_tokens
+        attempt = 0
+        async with self._sem():
+            while True:
+                emitted = False
+                try:
+                    async for delta in self._stream_once(provider, system, messages, limit, temperature, json_mode):
+                        emitted = True
+                        yield delta
+                    return
+                except AIError as err:
+                    if emitted or not err.retryable or attempt >= MAX_RETRIES:
+                        raise
+                    attempt += 1
+                    await asyncio.sleep(0.6 * (2 ** (attempt - 1)))
+                    logger.warning("Retrying AI request (%s), attempt %d", err.code, attempt)
 
-        if candidate_node_ids:
-            lines.append(f"**Identified Key Components ({len(candidate_node_ids)} total):**")
-            for nid in candidate_node_ids[:6]:
-                lines.append(f"- Component node: `{nid}`")
+    async def complete_text(
+        self,
+        system: str,
+        messages: list[Message],
+        max_tokens: Optional[int] = None,
+        temperature: float = 0.2,
+        json_mode: bool = False,
+    ) -> str:
+        parts: list[str] = []
+        async for delta in self.stream_text(system, messages, max_tokens, temperature, json_mode):
+            parts.append(delta)
+        text = "".join(parts).strip()
+        if not text:
+            raise AIError("ai_empty_response", "The AI provider returned an empty response. Try again.", 502, True)
+        return text
 
-        if relevant_files:
-            lines.append("\n**Primary Source Locations:**")
-            for fpath in relevant_files[:5]:
-                lines.append(f"- `{fpath}`")
+    async def complete_json(
+        self, system: str, messages: list[Message], max_tokens: Optional[int] = None
+    ) -> dict[str, Any]:
+        """Complete and parse a JSON object response; raises AIError when it cannot be parsed."""
+        text = await self.complete_text(system, messages, max_tokens, temperature=0.1, json_mode=True)
+        return parse_json_object(text)
 
-        if relevant_symbols:
-            lines.append("\n**Key Resolved Symbols:**")
-            for sym in relevant_symbols[:5]:
-                lines.append(f"- `{sym}`")
-
-        lines.append(
-            "\n*The 3D visualization camera will highlight these architectural nodes and their connected call paths.*"
-        )
-
-        return "\n".join(lines), candidate_node_ids[:5]
-
+    # --------------------------------------------- labels used by clusters/workflows
     async def generate_cluster_summary(
         self,
         cluster_id: int,
@@ -198,62 +321,27 @@ class AIClient:
         languages: list[str],
         paths: list[str],
     ) -> str:
-        """Synthesize a 1-sentence Galaxy summary describing a Louvain community cluster."""
+        """One-sentence cluster label; deterministic structural label when AI is unavailable."""
         nodes_desc = "\n".join(
-            f"- {n.get('label', n.get('id'))} ({n.get('type')} at `{n.get('path')}`, centrality: {n.get('centrality', 0.0)}): {n.get('name', '')}"
-            for n in top_nodes[:5]
+            f"- {n.get('label', n.get('id'))} ({n.get('type')} at `{n.get('path')}`)" for n in top_nodes[:5]
         )
-
-        system_prompt = (
-            "You are a software architect summarizing high-level module clusters in a 3D codebase visualizer.\n"
-            "Provide a concise, 1-sentence Galaxy Summary (max 100 characters) describing "
-            "the core domain/functional responsibility of this cluster. "
-            "Example: 'Core routing, request logging, and authentication middleware.' "
-            "Do NOT wrap in quotes."
+        system = (
+            "You label module clusters in a code graph. Reply with ONE sentence (max 100 characters) "
+            "describing the cluster's responsibility, using only the names given. No quotes."
         )
-
-        user_prompt = (
-            f"Cluster ID: {cluster_id}\n"
-            f"Primary paths: {', '.join(paths) if paths else 'root'}\n"
-            f"Languages: {', '.join(languages) if languages else 'Not specified'}\n"
-            f"Top central nodes:\n{nodes_desc}\n\n"
-            f"Galaxy Summary:"
+        prompt = (
+            f"Cluster {cluster_id}\nPaths: {', '.join(paths) if paths else 'root'}\n"
+            f"Languages: {', '.join(languages) or 'unknown'}\nTop nodes:\n{nodes_desc}"
         )
-
         try:
-            raw_summary = await self._call_gemini_rest(
-                prompt=user_prompt,
-                system_instruction=system_prompt,
-                temperature=0.2,
-                max_output_tokens=150,
-            )
-        except Exception as exc:
-            logger.warning("Gemini API call failed (%s); falling back to heuristic", exc)
-            raw_summary = None
-
-        if raw_summary:
-            clean = raw_summary.strip().strip('"').strip("'").strip()
-            if len(clean) > 130:
-                clean = clean[:127] + "..."
-            return clean
-
-        return self._heuristic_cluster_summary(cluster_id, top_nodes, paths)
-
-    def _heuristic_cluster_summary(
-        self,
-        cluster_id: int,
-        top_nodes: list[dict[str, Any]],
-        paths: list[str],
-    ) -> str:
-        """Deterministic heuristic cluster summary."""
-        if not top_nodes:
-            return f"Galaxy module {cluster_id} containing general application logic."
-
-        primary_dir = paths[0] if paths else "core"
-        labels = [n.get("label", n.get("id", "")).replace("()", "") for n in top_nodes[:3]]
-        labels_str = ", ".join(labels) if labels else "components"
-
-        return f"Galaxy module for '{primary_dir}' coordinating {labels_str}."
+            raw = await self.complete_text(system, [{"role": "user", "content": prompt}], max_tokens=120)
+            clean = raw.strip().strip('"').strip("'").strip()
+            return clean if len(clean) <= 130 else clean[:127] + "..."
+        except AIError as err:
+            logger.info("Cluster summary falling back to structural label (%s)", err.code)
+        primary_dir = paths[0] if paths else "root"
+        labels = ", ".join(n.get("label", n.get("id", "")) for n in top_nodes[:3]) or "components"
+        return f"Structural cluster for '{primary_dir}' containing {labels}."
 
     async def generate_workflow_details(
         self,
@@ -262,44 +350,44 @@ class AIClient:
         path_labels: list[str],
         node_count: int,
     ) -> tuple[str, str]:
-        """Synthesize human-friendly workflow title and lifecycle summary."""
+        """Workflow name/description; deterministic structural text when AI is unavailable."""
         chain = " -> ".join(path_labels[:6])
-
-        system_prompt = (
-            "You are describing a statically inferred execution workflow in a software codebase based on static call and import graphs.\n"
-            "Provide two lines of output:\n"
-            "NAME: [Short 3-5 word name, e.g. 'API Request & Handler Pipeline']\n"
-            "DESC: [1 concise sentence describing what this statically inferred execution pathway accomplishes]"
+        system = (
+            "You name statically inferred workflows from call/import graphs. Output exactly two lines:\n"
+            "NAME: <3-5 words>\nDESC: <one sentence>"
         )
-
-        user_prompt = (
-            f"Entry point: {entry_label} at path '{entry_path}'\n"
-            f"Execution sequence: {chain}\n"
-            f"Total traversed components: {node_count}"
-        )
-
+        prompt = f"Entry: {entry_label} ({entry_path})\nSequence: {chain}\nComponents: {node_count}"
+        name = f"{entry_label} Execution Path"
+        desc = f"Statically inferred path from {entry_label} through {node_count} components."
         try:
-            raw_text = await self._call_gemini_rest(
-                prompt=user_prompt,
-                system_instruction=system_prompt,
-                temperature=0.2,
-                max_output_tokens=200,
-            )
-        except Exception as exc:
-            logger.warning("Gemini API call failed (%s); falling back to heuristic", exc)
-            raw_text = None
-
-        name = f"{entry_label} Execution Lifecycle"
-        desc = f"Statically inferred execution pathway starting from {entry_label} traversing {node_count} components."
-
-        if raw_text:
-            for line in raw_text.splitlines():
+            raw = await self.complete_text(system, [{"role": "user", "content": prompt}], max_tokens=160)
+            for line in raw.splitlines():
                 if line.startswith("NAME:"):
                     name = line.replace("NAME:", "").strip().strip('"')
                 elif line.startswith("DESC:"):
                     desc = line.replace("DESC:", "").strip().strip('"')
-
+        except AIError as err:
+            logger.info("Workflow naming falling back to structural text (%s)", err.code)
         return name, desc
+
+
+def parse_json_object(text: str) -> dict[str, Any]:
+    """Parse a JSON object from model output, tolerating code fences and surrounding prose."""
+    cleaned = text.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE)
+    try:
+        value = json.loads(cleaned)
+    except json.JSONDecodeError:
+        start, end = cleaned.find("{"), cleaned.rfind("}")
+        if start == -1 or end <= start:
+            raise AIError("ai_bad_output", "The AI response was not valid JSON. Try again.", 502, True) from None
+        try:
+            value = json.loads(cleaned[start : end + 1])
+        except json.JSONDecodeError:
+            raise AIError("ai_bad_output", "The AI response was not valid JSON. Try again.", 502, True) from None
+    if not isinstance(value, dict):
+        raise AIError("ai_bad_output", "The AI response was not a JSON object.", 502, True)
+    return value
 
 
 # Global AI client singleton

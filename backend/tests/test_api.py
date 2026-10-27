@@ -60,6 +60,16 @@ class TestFastAPIBackend(unittest.TestCase):
 
         self.client = TestClient(app)
 
+    def _wait_for_repo(self, repo_id: str, timeout: float = 60.0) -> None:
+        """Poll until the repository leaves queued/running instead of sleeping a fixed time."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            repo = get_repository(repo_id)
+            if repo and repo.status in ("completed", "failed"):
+                return
+            time.sleep(0.05)
+        self.fail(f"Repository {repo_id} did not finish within {timeout}s")
+
     def tearDown(self) -> None:
         settings.data_dir = self.orig_data_dir
         try:
@@ -341,7 +351,7 @@ class TestFastAPIBackend(unittest.TestCase):
                 json={"url": "https://github.com/example/py-only", "branch": "main"},
             )
             repo_id = res.json()["repository_id"]
-            time.sleep(0.8)
+            self._wait_for_repo(repo_id)
 
             graph_res = self.client.get(f"/api/repositories/{repo_id}/graph")
             self.assertEqual(graph_res.status_code, 200)
@@ -364,7 +374,7 @@ class TestFastAPIBackend(unittest.TestCase):
                 json={"url": "https://github.com/example/ts-only", "branch": "main"},
             )
             repo_id = res.json()["repository_id"]
-            time.sleep(0.8)
+            self._wait_for_repo(repo_id)
 
             graph_res = self.client.get(f"/api/repositories/{repo_id}/graph")
             self.assertEqual(graph_res.status_code, 200)
@@ -389,7 +399,7 @@ class TestFastAPIBackend(unittest.TestCase):
                 json={"url": "https://github.com/example/polyglot", "branch": "main"},
             )
             repo_id = res.json()["repository_id"]
-            time.sleep(1.0)
+            self._wait_for_repo(repo_id)
 
             # Files list check
             files_res = self.client.get(f"/api/repositories/{repo_id}/files")
@@ -412,7 +422,7 @@ class TestFastAPIBackend(unittest.TestCase):
                 json={"url": "https://github.com/example/empty", "branch": "main"},
             )
             repo_id = res.json()["repository_id"]
-            time.sleep(0.8)
+            self._wait_for_repo(repo_id)
 
             graph = self.client.get(f"/api/repositories/{repo_id}/graph").json()
             self.assertEqual(graph["summary"]["node_count"], 1)  # Repository node
@@ -432,7 +442,7 @@ class TestFastAPIBackend(unittest.TestCase):
                 json={"url": "https://github.com/example/filtering", "branch": "main"},
             )
             repo_id = res.json()["repository_id"]
-            time.sleep(0.8)
+            self._wait_for_repo(repo_id)
 
             # Filter by node type
             graph_res = self.client.get(f"/api/repositories/{repo_id}/graph?node_type=class")
@@ -472,7 +482,7 @@ class TestFastAPIBackend(unittest.TestCase):
                 json={"url": "https://github.com/example/inv-filter", "branch": "main"},
             )
             repo_id = res.json()["repository_id"]
-            time.sleep(0.8)
+            self._wait_for_repo(repo_id)
 
             # Filter by language Python
             py_files = self.client.get(f"/api/repositories/{repo_id}/files?language=Python").json()
@@ -494,7 +504,7 @@ class TestFastAPIBackend(unittest.TestCase):
                 json={"url": "https://github.com/example/source-read", "branch": "main"},
             )
             repo_id = res.json()["repository_id"]
-            time.sleep(0.8)
+            self._wait_for_repo(repo_id)
 
             # Full file
             file_res = self.client.get(f"/api/repositories/{repo_id}/file?path=module/hello.py")
@@ -527,7 +537,7 @@ class TestFastAPIBackend(unittest.TestCase):
                 json={"url": "https://github.com/example/sec-check", "branch": "main"},
             )
             repo_id = res.json()["repository_id"]
-            time.sleep(0.8)
+            self._wait_for_repo(repo_id)
 
             # Path traversal
             res_trav = self.client.get(f"/api/repositories/{repo_id}/file?path=../../outside.txt")
@@ -557,7 +567,7 @@ class TestFastAPIBackend(unittest.TestCase):
                 json={"url": "https://github.com/example/search-dep", "branch": "main"},
             )
             repo_id = res.json()["repository_id"]
-            time.sleep(0.8)
+            self._wait_for_repo(repo_id)
 
             # Search symbol
             search_res = self.client.get(f"/api/repositories/{repo_id}/symbols?q=verify_token")
@@ -591,7 +601,7 @@ class TestFastAPIBackend(unittest.TestCase):
                 json={"url": "https://github.com/example/impact-test", "branch": "main"},
             )
             repo_id = res.json()["repository_id"]
-            time.sleep(0.8)
+            self._wait_for_repo(repo_id)
 
             # Find db.connect symbol
             syms = self.client.get(f"/api/repositories/{repo_id}/symbols?q=connect").json()["symbols"]

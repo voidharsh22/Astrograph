@@ -3,22 +3,25 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
 import logging
 import os
 from pathlib import Path
 import shutil
 import tempfile
+import uuid
 from typing import Optional
 
 from app.config import settings
-from app.graph.graph_builder import build_graph
-from app.ingestion.scanner import scan_repository
-from app.parsers.javascript_parser import parse_js_repository_inventory
-from app.parsers.python_parser import parse_repository_inventory as parse_py_inventory
 from app.services.archive_extractor import extract_archive_safely
 from app.services.downloader import download_github_archive
-from app.storage.repository_store import update_job, update_repository_status
+from app.services.analysis_pipeline import run_analysis
+from app.storage.repository_store import (
+    complete_analysis,
+    update_job,
+    update_repository_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +141,8 @@ class IndexingService:
                 graph_analytics_file,
                 artifact_dir / "cluster_summaries.json",
                 artifact_dir / "workflows.json",
+                artifact_dir / "ai_architecture.json",
+                artifact_dir / "diagnostics.json",
             ]:
                 _safe_unlink(stale_file)
 
@@ -152,59 +157,18 @@ class IndexingService:
                 temp_zip_file = None
 
             # ----------------------------------------------------
-            # Stage C: Scanning
+            # Stages C-G: scan, parse, resolve, build graph, analytics, diagnostics
             # ----------------------------------------------------
-            update_job(job_id, stage="scanning", progress=40)
-            scan_repository(
-                repository_path=source_dir,
-                output_path=inventory_file,
+            def _progress(stage: str, pct: int) -> None:
+                update_job(job_id, stage=stage, progress=pct)
+
+            diagnostics = run_analysis(
+                source_dir=source_dir,
+                artifact_dir=artifact_dir,
+                progress=_progress,
+                repository_id=repo_id,
             )
 
-            # ----------------------------------------------------
-            # Stage D: Parsing Python code
-            # ----------------------------------------------------
-            update_job(job_id, stage="parsing_python", progress=60)
-            parse_py_inventory(
-                inventory_path=inventory_file,
-                repo_root=source_dir,
-                output_path=py_analysis_file,
-            )
-
-            # ----------------------------------------------------
-            # Stage E: Parsing JavaScript and TypeScript code
-            # ----------------------------------------------------
-            update_job(job_id, stage="parsing_javascript", progress=75)
-            parse_js_repository_inventory(
-                inventory_path=inventory_file,
-                repo_root=source_dir,
-                output_path=js_analysis_file,
-            )
-
-            # ----------------------------------------------------
-            # Stage F: Building unified graph
-            # ----------------------------------------------------
-            update_job(job_id, stage="building_graph", progress=90)
-            graph_obj = build_graph(
-                repo_root=source_dir,
-                inventory_path=inventory_file,
-                analysis_path=[py_analysis_file, js_analysis_file],
-                output_path=code_graph_file,
-            )
-
-            # ----------------------------------------------------
-            # Stage F.2: Computing graph analytics and intelligence
-            # ----------------------------------------------------
-            update_job(job_id, stage="analyzing_graph", progress=95)
-            from app.services.graph_analytics_service import graph_analytics_service
-
-            analytics_data = graph_analytics_service.compute_analytics(graph_obj, repository_id=repo_id)
-            with open(graph_analytics_file, "w", encoding="utf-8") as f:
-                json.dump(analytics_data, f, indent=2)
-
-            # ----------------------------------------------------
-            # Stage G: Validating and saving results
-            # ----------------------------------------------------
-            update_job(job_id, stage="saving_results", progress=98)
             for path, name in [
                 (inventory_file, "repository inventory"),
                 (py_analysis_file, "Python analysis"),
@@ -213,20 +177,19 @@ class IndexingService:
                 (graph_analytics_file, "graph analytics"),
             ]:
                 if not path.exists():
-                    raise RuntimeError(f"Expected artifact '{name}' was not created at {path}")
-                # Verify JSON format
-                with open(path, "r", encoding="utf-8") as f:
-                    json.load(f)
+                    raise RuntimeError(f"Expected artifact '{name}' was not created")
 
-            # Mark completed
-            update_job(
-                job_id,
-                status="completed",
-                stage="completed",
-                progress=100,
-                completed=True,
+            graph_bytes = code_graph_file.read_bytes()
+            graph_data = json.loads(graph_bytes)
+            # One transaction: analysis record + job + repository status.
+            complete_analysis(
+                job_id=job_id,
+                repo_id=repo_id,
+                analysis_id=f"analysis_{uuid.uuid4().hex[:12]}",
+                graph_summary=graph_data.get("summary", {}),
+                graph_sha256=hashlib.sha256(graph_bytes).hexdigest(),
+                diagnostics=diagnostics,
             )
-            update_repository_status(repo_id, status="completed")
             logger.info("Indexing job %s for repo %s completed successfully", job_id, repo_id)
 
         except Exception as err:

@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import health, jobs, repositories
+from app.api.routes import astral_ai, health, jobs, repositories
 from app.config import settings
 from app.services.indexing_service import indexing_service
 from app.storage.database import init_db
@@ -67,6 +67,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api")
 app.include_router(repositories.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
+app.include_router(astral_ai.router, prefix="/api")
 
 
 @app.exception_handler(Exception)

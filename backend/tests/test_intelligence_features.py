@@ -173,7 +173,7 @@ class TestIntelligenceFeatures(unittest.TestCase):
             "```"
         )
 
-        with patch.object(ai_client, "_call_gemini_rest", new=AsyncMock(return_value=mock_gemini_text)):
+        with patch.object(ai_client, "complete_text", new=AsyncMock(return_value=mock_gemini_text)):
             res = self.client.post(
                 f"/api/repositories/{repo_id}/chat",
                 json={"question": "How does the app connect to the database?"},
@@ -183,8 +183,10 @@ class TestIntelligenceFeatures(unittest.TestCase):
             self.assertIn("database connection is managed", data["answer"])
             self.assertIn("func:connect", data["highlighted_node_ids"])
 
-    def test_feature_a_chat_missing_credentials_or_failure_fallback(self) -> None:
-        """When Gemini API call fails or key is missing, Q&A agent gracefully uses heuristic reasoning."""
+    def test_feature_a_chat_ai_failure_returns_structured_error_not_fake_answer(self) -> None:
+        """When the provider fails, the API returns a structured error and never a fabricated answer."""
+        from app.services.ai_client import AIError
+
         repo_id = "repo_qa_fallback"
         graph = {
             "schema_version": 1,
@@ -196,18 +198,13 @@ class TestIntelligenceFeatures(unittest.TestCase):
         }
         self._setup_test_repo(repo_id, graph)
 
-        # Force failure in API call
-        with patch.object(ai_client, "_call_gemini_rest", new=AsyncMock(side_effect=RuntimeError("API quota exceeded"))):
-            res = self.client.post(
-                f"/api/repositories/{repo_id}/chat",
-                json={"question": "What is in main.py?"},
-            )
-            self.assertEqual(res.status_code, 200)
-            data = res.json()
-            self.assertIn("Codebase Architectural Analysis", data["answer"])
-            self.assertIn("Offline Heuristic Mode", data["answer"])
-            self.assertIn("file:main.py", data["highlighted_node_ids"])
-            self.assertEqual(data["model"], "static-heuristic-engine")
+        err = AIError("ai_quota_exceeded", "quota exhausted", 429)
+        with patch.object(ai_client, "complete_text", new=AsyncMock(side_effect=err)):
+            res = self.client.post(f"/api/repositories/{repo_id}/chat", json={"question": "What is in main.py?"})
+            self.assertEqual(res.status_code, 429)
+            detail = res.json()["detail"]
+            self.assertEqual(detail["code"], "ai_quota_exceeded")
+            self.assertNotIn("answer", res.json())
 
     def test_feature_a_chat_status_guards(self) -> None:
         """Chat returns 404 for missing repo, 409 for running repo, and 422 for empty question."""
@@ -293,7 +290,7 @@ class TestIntelligenceFeatures(unittest.TestCase):
         self._setup_test_repo(repo_id, graph)
 
         mock_summary = "Core routing and request dispatching module."
-        with patch.object(ai_client, "_call_gemini_rest", new=AsyncMock(return_value=mock_summary)):
+        with patch.object(ai_client, "complete_text", new=AsyncMock(return_value=mock_summary)):
             # First call: generates
             res = self.client.post(
                 f"/api/repositories/{repo_id}/clusters/summarize",

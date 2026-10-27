@@ -29,6 +29,7 @@ from app.api.schemas import (
     WorkflowTraceRequest,
     WorkflowTraceResponse,
 )
+from app.services.ai_client import AIError
 from app.services.cluster_service import cluster_service
 from app.services.qa_service import qa_service
 from app.services.workflow_service import workflow_service
@@ -326,6 +327,8 @@ async def chat_repository(
             question=req.question,
             history=req.history,
         )
+    except AIError as err:
+        raise HTTPException(status_code=err.status_code, detail=err.to_dict()) from err
     except FileNotFoundError as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -556,3 +559,41 @@ def get_impact(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(err),
         ) from err
+
+
+@router.get("/{repository_id}/diagnostics", summary="Parser diagnostics of the latest analysis")
+def get_diagnostics(repository_id: str) -> dict:
+    """Return persisted parser diagnostics (files parsed, errors, resolved/unresolved dependencies, timings)."""
+    from app.storage.repository_store import get_latest_analysis
+
+    repo = get_repository(repository_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail=f"Repository '{repository_id}' not found")
+    analysis = get_latest_analysis(repo.id)
+    if not analysis:
+        raise HTTPException(status_code=409, detail=f"No completed analysis for repository (status: {repo.status})")
+    return {"repository_id": repo.id, "analysis_id": analysis.id, "created_at": analysis.created_at,
+            "graph_sha256": analysis.graph_sha256, "diagnostics": analysis.diagnostics}
+
+
+@router.get("/{repository_id}/analyses", summary="Analysis history for a repository")
+def get_analyses(repository_id: str, limit: int = Query(default=10, ge=1, le=50)) -> dict:
+    from app.storage.repository_store import list_analyses
+
+    repo = get_repository(repository_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail=f"Repository '{repository_id}' not found")
+    items = [{k: v for k, v in a.to_dict().items() if k != "diagnostics"} for a in list_analyses(repo.id, limit)]
+    return {"repository_id": repo.id, "items": items}
+
+
+@router.delete("/{repository_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a repository and its analysis data")
+def delete_repository_endpoint(repository_id: str) -> None:
+    from app.services.repository_service import delete_repository
+
+    try:
+        delete_repository(repository_id)
+    except FileNotFoundError as err:
+        raise HTTPException(status_code=404, detail=str(err)) from err
+    except ValueError as err:
+        raise HTTPException(status_code=409, detail=str(err)) from err
