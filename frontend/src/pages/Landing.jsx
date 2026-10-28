@@ -21,10 +21,9 @@ import {
   Loader2,
   Layers,
 } from "lucide-react";
-import useAuth, { friendlyError } from "../hooks/useAuth.js";
+import useAuth, { friendlyError, messageForAuthError } from "../hooks/useAuth.js";
 import HeroGraph from "../components/Graph/HeroGraph.jsx";
 import SiteFooter from "../components/SiteFooter.jsx";
-import { SEED_DEMO_ACCOUNT } from "../services/demoAuthService.js";
 
 // Official Astrograph Team Ringed Planet Logo (Exact pixel match to the official artwork)
 export function RingedPlanetLogo({ className = "h-7 w-auto" }) {
@@ -78,12 +77,8 @@ export default function Landing() {
   const {
     user,
     ready,
-    authMode: activeAuthMode,
-    isDemoMode,
-    isFirebaseConfigured,
     signIn,
     signUp,
-    guestSignIn,
     google,
   } = useAuth();
 
@@ -98,6 +93,20 @@ export default function Landing() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authSuccess, setAuthSuccess] = useState("");
+  const [authHint, setAuthHint] = useState(""); // "" | "exists" | "invalid"
+
+  // Show the outcome of a Google redirect (?auth_error=...) once, then clean the URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("auth_error");
+    if (code) {
+      setAuthError(messageForAuthError(code));
+      if (code === "google_email_in_use") setAuthHint("exists");
+      params.delete("auth_error");
+      const qs = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : ""));
+    }
+  }, []);
 
   // Automatically forward authenticated users to the dashboard (prevents redirect loops)
   useEffect(() => {
@@ -110,6 +119,7 @@ export default function Landing() {
     e?.preventDefault();
     setAuthError("");
     setAuthSuccess("");
+    setAuthHint("");
     setIsSubmitting(true);
 
     try {
@@ -128,10 +138,13 @@ export default function Landing() {
           throw new Error("Passwords do not match. Please verify both passwords.");
         }
 
-        if (signUp) {
-          await signUp(email.trim(), password, trimmedName);
-        }
-        setAuthSuccess("Account registered successfully! Redirecting...");
+        await signUp(email.trim(), password, trimmedName);
+        // The backend created the account but did not sign anyone in: continue to the login form.
+        setAuthMode("login");
+        setPassword("");
+        setConfirmPassword("");
+        setAuthSuccess("Account created. Please log in.");
+        return;
       } else {
         if (!email.trim()) {
           throw new Error("Please enter your email address.");
@@ -140,16 +153,14 @@ export default function Landing() {
           throw new Error("Please enter your password.");
         }
 
-        if (signIn) {
-          await signIn(email.trim(), password);
-        }
+        await signIn(email.trim(), password);
         setAuthSuccess("Signed in successfully! Redirecting...");
       }
       navigate("/dashboard");
     } catch (err) {
-      console.warn("Auth error:", err);
-      const msg = friendlyError ? friendlyError(err) : (err.message || "Authentication failed.");
-      setAuthError(msg);
+      setAuthError(friendlyError(err));
+      if (err.code === "email_exists") setAuthHint("exists");
+      else if (err.code === "invalid_credentials") setAuthHint("invalid");
     } finally {
       setIsSubmitting(false);
     }
@@ -158,35 +169,16 @@ export default function Landing() {
   const handleOAuth = async () => {
     setAuthError("");
     setAuthSuccess("");
+    setAuthHint("");
     setIsSubmitting(true);
     try {
-      if (google) await google();
-      navigate("/dashboard");
+      // Navigates the page to Google's account chooser; the user is only signed in after the
+      // backend validates Google's response and redirects back to the dashboard.
+      await google();
     } catch (err) {
-      console.warn("OAuth error:", err);
-      const msg = friendlyError ? friendlyError(err) : (err.message || "OAuth sign-in failed.");
-      setAuthError(msg);
-    } finally {
+      setAuthError(friendlyError(err));
       setIsSubmitting(false);
     }
-  };
-
-  const handleGuestAccess = () => {
-    setAuthError("");
-    setAuthSuccess("");
-    try {
-      if (guestSignIn) guestSignIn();
-      navigate("/dashboard");
-    } catch (err) {
-      setAuthError(err.message || "Unable to start guest session.");
-    }
-  };
-
-  const fillDemoCredentials = () => {
-    setEmail(SEED_DEMO_ACCOUNT.email);
-    setPassword(SEED_DEMO_ACCOUNT.password);
-    setAuthMode("login");
-    setAuthError("");
   };
 
   return (
@@ -482,50 +474,7 @@ export default function Landing() {
                   : "Join Astrograph to construct 2D/3D code graphs, extract AST dependencies, and trace architectures."}
               </p>
 
-              {/* Mode indicator badge */}
-              <div className="auth-mode-indicator">
-                {isDemoMode ? (
-                  <div
-                    className="auth-badge auth-badge--demo"
-                    title="Firebase keys are not configured in frontend/.env. Running in Local Demo Mode."
-                  >
-                    <span className="auth-badge-dot auth-badge-dot--demo animate-pulse" />
-                    <span>LOCAL DEMO MODE (EVALUATION READY)</span>
-                  </div>
-                ) : (
-                  <div
-                    className="auth-badge auth-badge--firebase"
-                    title="Firebase Cloud Authentication connected."
-                  >
-                    <span className="auth-badge-dot auth-badge-dot--firebase" />
-                    <span>FIREBASE AUTH (PRODUCTION CLOUD)</span>
-                  </div>
-                )}
-              </div>
             </div>
-
-            {/* Quick Evaluator Pre-seeded Account Card (Only in Demo Mode) */}
-            {isDemoMode && authMode === "login" && (
-              <div className="auth-demo-helper-card">
-                <div className="auth-demo-helper-header">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                    <Sparkles size={13} style={{ color: '#FB923C' }} />
-                    <span>EVALUATOR TEST ACCOUNT</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={fillDemoCredentials}
-                    className="auth-demo-fill-btn"
-                  >
-                    Auto-Fill
-                  </button>
-                </div>
-                <div style={{ fontSize: '0.72rem', color: '#D1D5DB', fontFamily: 'var(--font-mono, monospace)' }}>
-                  <div><span style={{ color: '#9CA3AF' }}>Email: </span><span style={{ color: '#FED7AA' }}>{SEED_DEMO_ACCOUNT.email}</span></div>
-                  <div><span style={{ color: '#9CA3AF' }}>Password: </span><span style={{ color: '#FED7AA' }}>{SEED_DEMO_ACCOUNT.password}</span></div>
-                </div>
-              </div>
-            )}
 
             {/* Mode Switch Tabs: Log In | Sign Up */}
             <div className="auth-tabs-row" role="tablist">
@@ -564,6 +513,25 @@ export default function Landing() {
                   <AlertCircle size={16} className="shrink-0" />
                   <span>{authError}</span>
                 </div>
+              )}
+
+              {authHint === "exists" && (
+                <button
+                  type="button"
+                  className="auth-switch-link-btn"
+                  onClick={() => {
+                    setAuthMode("login");
+                    setAuthError("");
+                    setAuthHint("");
+                  }}
+                >
+                  Go to Log In
+                </button>
+              )}
+              {authHint === "invalid" && (
+                <span style={{ fontSize: "0.75rem", color: "#9CA3AF" }}>
+                  Signed up with Google? Use “Continue with Google” below.
+                </span>
               )}
 
               {authSuccess && (
@@ -664,17 +632,6 @@ export default function Landing() {
                     />
                     <span>Remember me</span>
                   </label>
-                  <a
-                    href="#demo-credentials"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      fillDemoCredentials();
-                    }}
-                    className="auth-forgot-link"
-                    title="Click to auto-fill evaluator demo credentials"
-                  >
-                    Use demo credentials
-                  </a>
                 </div>
               )}
 
@@ -692,11 +649,7 @@ export default function Landing() {
                 ) : (
                   <>
                     <span>
-                      {authMode === "login"
-                        ? "Log In"
-                        : isDemoMode
-                          ? "Register Demo Account"
-                          : "Create Account"}
+                      {authMode === "login" ? "Log In" : "Create Account"}
                     </span>
                     <ArrowRight size={16} />
                   </>
@@ -706,22 +659,6 @@ export default function Landing() {
               <div className="auth-divider-line">
                 <span>or</span>
               </div>
-
-              {/* Instant Guest / Explorer Login */}
-              <button
-                type="button"
-                onClick={handleGuestAccess}
-                className="auth-github-btn"
-                style={{
-                  borderColor: 'rgba(251, 146, 60, 0.35)',
-                  backgroundColor: 'rgba(251, 146, 60, 0.08)',
-                  color: '#FFF7ED',
-                }}
-                disabled={isSubmitting}
-              >
-                <Sparkles size={16} style={{ color: '#FB923C' }} />
-                <span>Continue as Guest (Instant Access)</span>
-              </button>
 
               {/* Google OAuth Option */}
               <button
@@ -772,9 +709,7 @@ export default function Landing() {
               <div className="auth-security-footer">
                 <Shield size={13} />
                 <span>
-                  {isDemoMode
-                    ? "Local Session Active • SHA-256 Hashed Passwords"
-                    : "Secure & Encrypted Firebase Authentication"}
+                  Server-verified sign-in • Salted scrypt password hashing
                 </span>
               </div>
             </form>

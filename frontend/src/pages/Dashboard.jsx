@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import useAuth from '../hooks/useAuth.js';
 import { uploadRepositoryZip } from '../api/workspaceService.js';
+import GithubRepoPicker from '../components/GithubRepoPicker.jsx';
 import { UploadCloud, FileArchive } from 'lucide-react';
 import { parseGithubUrl } from '../utils/github.js';
 import { RingedPlanetLogo } from './Landing.jsx';
@@ -69,7 +70,9 @@ export default function Dashboard() {
   const userPhoto = user?.photoURL;
 
   const [inputUrl, setInputUrl] = useState('');
-  const [submissionMode, setSubmissionMode] = useState('url'); // 'url' | 'zip'
+  const [submissionMode, setSubmissionMode] = useState(() =>
+    /[?&]gh_(ticket|error|installed)=/.test(window.location.search) ? 'github' : 'url'
+  ); // 'url' | 'zip' | 'github'
   const [zipFile, setZipFile] = useState(null);
   const [zipProjectName, setZipProjectName] = useState('');
   const [isUploadingZip, setIsUploadingZip] = useState(false);
@@ -347,6 +350,24 @@ export default function Dashboard() {
                 >
                   Upload ZIP Archive
                 </button>
+                <button
+                  type="button"
+                  onClick={() => { setSubmissionMode('github'); setUploadError(''); }}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '20px',
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    border: '1px solid',
+                    background: submissionMode === 'github' ? 'rgba(251, 146, 60, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                    borderColor: submissionMode === 'github' ? '#FB923C' : 'rgba(255, 255, 255, 0.1)',
+                    color: submissionMode === 'github' ? '#FB923C' : '#9CA3AF',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  Connect GitHub
+                </button>
               </div>
 
               {submissionMode === 'url' ? (
@@ -368,6 +389,8 @@ export default function Dashboard() {
                     <ArrowRight size={15} />
                   </button>
                 </form>
+              ) : submissionMode === 'github' ? (
+                <GithubRepoPicker />
               ) : (
                 <form onSubmit={handleStartZipAnalysis} className="new-analysis-form" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div style={{
@@ -428,7 +451,7 @@ export default function Dashboard() {
               )}
 
               <div className="analysis-trust-badges">
-                <span>✓ Public repos & ZIPs</span>
+                <span>✓ Public & private repos, ZIPs</span>
                 <span>✓ Tree-sitter AST</span>
                 <span>✓ 2D & 3D Knowledge Graph</span>
               </div>
