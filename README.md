@@ -365,3 +365,67 @@ JavaScript cannot read. There is no demo mode, guest login or client-side creden
 3. **Authorized redirect URI**: `http://localhost:5173/api/auth/google/callback` for local dev (or `<ASTRAL_FRONTEND_URL>/api/auth/google/callback`;
    it must match `GOOGLE_REDIRECT_URI` / the default character for character). Add your production https URI too.
 4. Put the client ID and secret in `backend/.env` as `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` and restart the backend.
+
+
+## Quick setup: "Sign in with Google" and "Connect GitHub" on your own computer
+
+Both buttons stay disabled/unavailable until you create your own credentials and put them in `backend/.env`.
+Credentials are per-developer and are never committed. Run everything locally with the defaults below
+(backend `http://127.0.0.1:8000`, frontend `http://localhost:5173`).
+
+### 0. Start from a working local install
+
+```bash
+# backend
+cd backend
+python -m venv .venv
+.venv\Scripts\activate          # Windows  (Linux/macOS: source .venv/bin/activate)
+pip install -r requirements.txt
+copy .env.example .env          # Windows  (Linux/macOS: cp .env.example .env)
+
+# frontend (second terminal)
+cd frontend
+npm install
+```
+
+Make sure `.env` contains `ASTRAL_FRONTEND_URL=http://localhost:5173` and `ASTRAL_PUBLIC_BACKEND_URL=http://127.0.0.1:8000`.
+
+### 1. Sign in with Google
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and create (or pick) a project.
+2. *APIs & Services* -> *OAuth consent screen*: choose **External**, fill in the app name and your email, and add the scopes
+   `openid`, `email`, `profile`. While the app is in "Testing", add your own Google address under **Test users**.
+3. *APIs & Services* -> *Credentials* -> *Create credentials* -> *OAuth client ID* -> type **Web application**.
+4. Under **Authorized redirect URIs** add exactly: `http://localhost:5173/api/auth/google/callback`
+   (it must match character for character, including `localhost` vs `127.0.0.1`).
+5. Copy the Client ID and Client secret into `backend/.env`:
+   ```env
+   GOOGLE_CLIENT_ID=<your-client-id>.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=<your-client-secret>
+   ```
+6. Restart the backend, open `http://localhost:5173` (not `127.0.0.1:5173`) and click **Continue with Google**.
+
+Troubleshooting: `redirect_uri_mismatch` means the URI in step 4 differs from the one you are using; `access_blocked` means your
+account is not listed as a test user.
+
+### 2. Connect GitHub (private repositories)
+
+1. GitHub -> *Settings* -> *Developer settings* -> *GitHub Apps* -> **New GitHub App**.
+2. Set **Callback URL** and **Setup URL** to `http://127.0.0.1:8000/api/github/callback`, tick
+   **Request user authorization (OAuth) during installation**, and untick **Webhook -> Active**.
+3. Repository permissions (read-only): **Contents** and **Metadata**. Nothing else.
+4. Create the app, then note the **App ID**, **Client ID** and **slug** (the name in `github.com/apps/<slug>`).
+   Click **Generate a new client secret** and **Generate a private key** (downloads a `.pem` file; keep it outside the repo).
+5. Fill `backend/.env`:
+   ```env
+   GITHUB_APP_ID=<app id>
+   GITHUB_APP_SLUG=<slug>
+   GITHUB_APP_CLIENT_ID=<client id>
+   GITHUB_APP_CLIENT_SECRET=<client secret>
+   GITHUB_APP_PRIVATE_KEY_PATH=C:/path/to/your-app.private-key.pem
+   ```
+6. Restart the backend, then on your GitHub App's page click **Install App** and choose the repositories it may read.
+7. In the web app open the Dashboard -> **Connect GitHub**, authorize, pick a repository and click **Analyse**.
+
+Public repositories never need GitHub credentials; only private-repo access does. See *Private repositories (GitHub App)* and
+*Authentication* above for the security details.

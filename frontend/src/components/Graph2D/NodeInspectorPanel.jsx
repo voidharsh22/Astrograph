@@ -32,6 +32,46 @@ function PythonIcon({ style = { width: 14, height: 14 } }) {
   );
 }
 
+const EXT_LANG = {
+  py: 'python', pyw: 'python', pyi: 'python',
+  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+  ts: 'typescript', tsx: 'typescript',
+  java: 'java', kt: 'kotlin', kts: 'kotlin', rs: 'rust',
+};
+
+const BADGES = {
+  javascript: { bg: '#f7df1e', fg: '#000', text: 'JS' },
+  typescript: { bg: '#3178c6', fg: '#fff', text: 'TS' },
+  java: { bg: '#e76f00', fg: '#fff', text: 'J' },
+  kotlin: { bg: '#7f52ff', fg: '#fff', text: 'K' },
+  rust: { bg: '#b7410e', fg: '#fff', text: 'Rs' },
+};
+
+// Language-aware icon: picks by node.language, falling back to the file extension
+function LanguageIcon({ node, style = { width: 14, height: 14 } }) {
+  const ext = (node?.path || node?.label || '').split('.').pop()?.toLowerCase();
+  const lang = (node?.language || '').toLowerCase() || EXT_LANG[ext] || '';
+  if (!lang || lang === 'python') return <PythonIcon style={style} />;
+  const badge = BADGES[lang];
+  if (!badge) {
+    return (
+      <svg style={style} viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+        <rect width="128" height="128" rx="24" fill="#0ea5e9" />
+        <path d="M42 44L22 64l20 20M86 44l20 20-20 20M68 36l-8 56" stroke="#fff" strokeWidth="10"
+          strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      </svg>
+    );
+  }
+  return (
+    <svg style={style} viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+      <rect width="128" height="128" rx="20" fill={badge.bg} />
+      <text x="64" y="88" textAnchor="middle" fontFamily="monospace" fontSize="64" fontWeight="bold" fill={badge.fg}>
+        {badge.text}
+      </text>
+    </svg>
+  );
+}
+
 export default function NodeInspectorPanel({
   selectedNode,
   selectedCluster,
@@ -69,6 +109,7 @@ export default function NodeInspectorPanel({
           nodeId: sourceNode?.id || e.source,
           label: sourceNode?.label || e.sourcePath?.split('/').pop() || e.source,
           path: sourceNode?.path || e.sourcePath || '',
+          language: sourceNode?.language,
           relation: e.relation,
         };
       });
@@ -82,6 +123,7 @@ export default function NodeInspectorPanel({
           nodeId: targetNode?.id || e.target,
           label: targetNode?.label || e.targetPath?.split('/').pop() || e.target,
           path: targetNode?.path || e.targetPath || '',
+          language: targetNode?.language,
           relation: e.relation,
         };
       });
@@ -165,7 +207,7 @@ export default function NodeInspectorPanel({
                 onClick={() => onSelectNode(file.id)}
               >
                 <div className="inspector-dep-left">
-                  <PythonIcon />
+                  <LanguageIcon node={file} />
                   <span className="inspector-dep-name">{file.label}</span>
                 </div>
                 <ChevronRight size={13} style={{ color: '#64748b' }} />
@@ -216,7 +258,7 @@ export default function NodeInspectorPanel({
             justifyContent: 'center',
             flexShrink: 0
           }}>
-            <PythonIcon style={{ width: 18, height: 18 }} />
+            <LanguageIcon node={selectedNode} style={{ width: 18, height: 18 }} />
           </div>
           <h3 className="inspector-node-title">{selectedNode.label}</h3>
         </div>
@@ -298,7 +340,7 @@ export default function NodeInspectorPanel({
                   title={`Select ${dep.path}`}
                 >
                   <div className="inspector-dep-left">
-                    <PythonIcon />
+                    <LanguageIcon node={dep} />
                     <span className="inspector-dep-name">{dep.label}</span>
                     <span className="inspector-dep-path">({dep.path})</span>
                   </div>
@@ -331,7 +373,7 @@ export default function NodeInspectorPanel({
                   title={`Select ${dep.path}`}
                 >
                   <div className="inspector-dep-left">
-                    <PythonIcon />
+                    <LanguageIcon node={dep} />
                     <span className="inspector-dep-name">{dep.label}</span>
                     <span className="inspector-dep-path">({dep.path})</span>
                   </div>

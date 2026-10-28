@@ -788,13 +788,24 @@ export default function GalaxyGraph3D({
 
       // Arrowheads follow each line's highlight color/opacity and scale with camera distance
       {
-        const zoomScale = Math.min(3.2, Math.max(0.9, camera.position.length() / 130));
+        const zoomScale = Math.min(2.2, Math.max(0.7, camera.position.length() / 130));
         edgeObjectsRef.current.forEach((eo) => {
           const am = eo.arrowMesh;
           if (!am) return;
           am.material.color.copy(eo.lineMesh.material.color);
           am.material.opacity = Math.min(1, eo.lineMesh.material.opacity + 0.35);
           am.scale.setScalar(zoomScale);
+          // Flat 2-line arrow: keep its plane facing the camera so it never goes edge-on
+          const d = am.userData.dir;
+          if (d) {
+            const toCam = camera.position.clone().sub(am.position);
+            const z = toCam.addScaledVector(d, -toCam.dot(d));
+            if (z.lengthSq() > 1e-6) {
+              z.normalize();
+              const x = new THREE.Vector3().crossVectors(d, z).normalize();
+              am.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, d, z));
+            }
+          }
         });
       }
 
@@ -1075,7 +1086,6 @@ export default function GalaxyGraph3D({
     // Step 7: Render Directed Edges & Flowing Data Pulses
     if (Array.isArray(graphData.edges)) {
       const pulseGeom = new THREE.SphereGeometry(0.75, 12, 12);
-      const arrowGeo = new THREE.ConeGeometry(1.15, 3.6, 14);
 
       graphData.edges.forEach((edge, eIdx) => {
         const p1 = nodeCoords.get(edge.source);
@@ -1108,12 +1118,18 @@ export default function GalaxyGraph3D({
           let arrow = null;
           if (edgeLen > 1) {
             dirN.normalize();
-            arrow = new THREE.Mesh(
-              arrowGeo,
-              new THREE.MeshBasicMaterial({ color: defaultColor, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false }),
+            // Open "V" arrowhead drawn with line segments (tip at local +Y -> target)
+            const headGeo = new THREE.BufferGeometry().setFromPoints([
+              new THREE.Vector3(0, 0, 0), new THREE.Vector3(-0.9, -1.8, 0),
+              new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.9, -1.8, 0),
+            ]);
+            arrow = new THREE.LineSegments(
+              headGeo,
+              new THREE.LineBasicMaterial({ color: defaultColor, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false }),
             );
-            arrow.position.copy(p2).addScaledVector(dirN, -Math.min(6.4, edgeLen * 0.4));
-            arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirN); // cone tip (+Y) -> target
+            arrow.position.copy(p2).addScaledVector(dirN, -Math.min(4, edgeLen * 0.3));
+            arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirN);
+            arrow.userData.dir = dirN.clone();
             arrow.renderOrder = 4;
             arrow.raycast = () => {};
             galaxyGroup.add(arrow);
