@@ -31,6 +31,8 @@ class RepositoryRecord:
     workspace_dir: str
     artifact_dir: str
     error_message: Optional[str] = None
+    # GitHub user id that imported this repository via the GitHub App; NULL = public import (unrestricted).
+    owner_github_user_id: Optional[int] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -64,6 +66,7 @@ def create_repository(
     status: str = "queued",
     current_job_id: Optional[str] = None,
     db_path: Optional[Path] = None,
+    owner_github_user_id: Optional[int] = None,
 ) -> RepositoryRecord:
     """Insert a new repository record."""
     now = current_utc_iso()
@@ -72,8 +75,9 @@ def create_repository(
             """
             INSERT INTO repositories (
                 id, url, owner, name, branch, status, current_job_id,
-                created_at, updated_at, workspace_dir, artifact_dir, error_message
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, workspace_dir, artifact_dir, error_message,
+                owner_github_user_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 repo_id,
@@ -88,6 +92,7 @@ def create_repository(
                 workspace_dir,
                 artifact_dir,
                 None,
+                owner_github_user_id,
             ),
         )
 
@@ -104,6 +109,7 @@ def create_repository(
         workspace_dir=workspace_dir,
         artifact_dir=artifact_dir,
         error_message=None,
+        owner_github_user_id=owner_github_user_id,
     )
 
 
@@ -152,12 +158,17 @@ def get_repository_by_url_and_branch(
     url: str,
     branch: str,
     db_path: Optional[Path] = None,
+    owner_github_user_id: Optional[int] = None,
 ) -> Optional[RepositoryRecord]:
-    """Look up an existing repository record by canonical URL and branch."""
+    """Look up an existing repository record by canonical URL and branch.
+
+    Public imports (owner_github_user_id=None) only ever match public records, so a URL import can
+    never attach to, or re-queue, a private GitHub App import of the same repository.
+    """
     with get_db(db_path) as conn:
         cursor = conn.execute(
-            "SELECT * FROM repositories WHERE url = ? AND branch = ?",
-            (url, branch),
+            "SELECT * FROM repositories WHERE url = ? AND branch = ? AND owner_github_user_id IS ?",
+            (url, branch, owner_github_user_id),
         )
         row = cursor.fetchone()
         if not row:
@@ -169,12 +180,17 @@ def list_repositories(
     limit: int = 50,
     offset: int = 0,
     db_path: Optional[Path] = None,
+    viewer_github_user_id: Optional[int] = None,
 ) -> list[RepositoryRecord]:
-    """List indexed repositories with pagination."""
+    """List indexed repositories with pagination.
+
+    Private (GitHub App) repositories are listed only for the GitHub user that imported them.
+    """
     with get_db(db_path) as conn:
         cursor = conn.execute(
-            "SELECT * FROM repositories ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            (limit, offset),
+            "SELECT * FROM repositories WHERE owner_github_user_id IS NULL "
+            "OR owner_github_user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (viewer_github_user_id, limit, offset),
         )
         rows = cursor.fetchall()
         return [RepositoryRecord(**dict(r)) for r in rows]

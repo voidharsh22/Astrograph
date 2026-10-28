@@ -3,6 +3,7 @@
 
 import { normalizeGraphData } from '../services/graphNormalizer.js';
 import { DEMO_GRAPH } from '../demo/demoGraph.js';
+import { githubAuthHeaders } from './githubService.js';
 
 const BASE = (
   (typeof import.meta !== "undefined" &&
@@ -36,7 +37,7 @@ export async function getRepositoryGraph(repoIdOrUrl, options = {}) {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
       const res = await fetch(url, {
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', ...githubAuthHeaders() },
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -86,7 +87,7 @@ function backendDown() {
 export async function getSourceFileContent(repoId, filePath) {
   let res;
   try {
-    res = await fetch(`${BASE}/api/repositories/${encodeURIComponent(repoId)}/file?path=${encodeURIComponent(filePath)}`);
+    res = await fetch(`${BASE}/api/repositories/${encodeURIComponent(repoId)}/file?path=${encodeURIComponent(filePath)}`, { headers: githubAuthHeaders() });
   } catch {
     throw backendDown();
   }
@@ -115,7 +116,7 @@ export async function submitRepositoryIndexing(repoUrl, branch = 'main') {
 export async function getJobStatus(jobId) {
   let res;
   try {
-    res = await fetch(`${BASE}/api/jobs/${encodeURIComponent(jobId)}`);
+    res = await fetch(`${BASE}/api/jobs/${encodeURIComponent(jobId)}`, { headers: githubAuthHeaders() });
   } catch {
     throw backendDown();
   }
@@ -132,7 +133,7 @@ export function getJobStreamUrl(jobId) {
 export async function getDiagnostics(repoId) {
   let res;
   try {
-    res = await fetch(`${BASE}/api/repositories/${encodeURIComponent(repoId)}/diagnostics`);
+    res = await fetch(`${BASE}/api/repositories/${encodeURIComponent(repoId)}/diagnostics`, { headers: githubAuthHeaders() });
   } catch {
     throw backendDown();
   }

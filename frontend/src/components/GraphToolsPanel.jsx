@@ -177,10 +177,10 @@ export default function GraphToolsPanel({
           <>
             <section>
               <h5>Relationships</h5>
-              {['imports', 'calls'].map((k) => (
+              {['imports', 'calls', 'extends', 'implements', 'renders'].map((k) => (
                 <label key={k} className="gt-check">
                   <input type="checkbox" checked={filters.relations[k]} onChange={(e) => setRel(k, e.target.checked)} />
-                  <span style={{ color: RELATION_STYLES[k].color }}>{RELATION_STYLES[k].dash === 'solid' ? '━━▶' : '╌╌▶'}</span> {RELATION_STYLES[k].label}
+                  <span style={{ color: RELATION_STYLES[k].color }}>{RELATION_STYLES[k].dash === 'solid' ? '━━▶' : RELATION_STYLES[k].dash === 'dotted' ? '┄┄▶' : '╌╌▶'}</span> {RELATION_STYLES[k].label}
                   <small>{RELATION_STYLES[k].description}</small>
                 </label>
               ))}

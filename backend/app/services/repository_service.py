@@ -324,7 +324,9 @@ def search_repository_symbols(
     artifact_dir = settings.get_repo_artifact_dir(repo_id)
     all_symbols: list[dict[str, Any]] = []
 
-    for ana_filename in ("python_analysis.json", "javascript_analysis.json"):
+    from app.parsers.registry import ANALYSIS_FILENAMES
+
+    for ana_filename in ANALYSIS_FILENAMES:
         ana_path = artifact_dir / ana_filename
         if ana_path.exists():
             try:

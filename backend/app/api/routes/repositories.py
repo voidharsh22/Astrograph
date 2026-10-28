@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 
 from app.api.schemas import (
     DependenciesResponse,
@@ -31,6 +31,7 @@ from app.api.schemas import (
 )
 from app.services.ai_client import AIError
 from app.services.cluster_service import cluster_service
+from app.services.github_app import session_from_authorization
 from app.services.qa_service import qa_service
 from app.services.workflow_service import workflow_service
 from app.services.repository_service import (
@@ -155,9 +156,13 @@ async def upload_repository_zip(
 def get_repositories(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    authorization: Optional[str] = Header(default=None),
 ) -> RepositoryListResponse:
-    """Retrieve paginated list of all indexed repositories."""
-    repos = list_repositories(limit=limit, offset=offset)
+    """Retrieve paginated list of indexed repositories (plus the caller's own private ones)."""
+    sess = session_from_authorization(authorization)
+    repos = list_repositories(
+        limit=limit, offset=offset, viewer_github_user_id=sess.user_id if sess else None
+    )
     items = [RepositorySummary(**r.to_dict()) for r in repos]
     return RepositoryListResponse(
         items=items,

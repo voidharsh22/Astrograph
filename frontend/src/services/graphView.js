@@ -6,11 +6,11 @@
  * relationships: it only filters, traverses and highlights existing edges.
  */
 
-export const DEPENDENCY_RELATIONS = ['imports', 'calls'];
+export const DEPENDENCY_RELATIONS = ['imports', 'calls', 'extends', 'implements', 'renders'];
 export const STRUCTURAL_RELATIONS = ['defines', 'contains'];
 
 export const DEFAULT_FILTERS = {
-  relations: { imports: true, calls: true, structural: false },
+  relations: { imports: true, calls: true, extends: true, implements: true, renders: true, structural: false },
   language: 'all',
   directory: 'all',
   nodeKinds: 'files', // 'files' | 'all'
@@ -45,9 +45,56 @@ export function edgeAllowed(edge, filters) {
   return Boolean(r[edge.relation]);
 }
 
+/**
+ * File-level view: dependency edges whose endpoints are symbols (calls, extends, implements, renders)
+ * are shown between the files that define those symbols. Each lifted edge keeps the relation,
+ * the source lines and the ids of the real symbol-level edges it came from (`lifted_from`);
+ * nothing is invented and endpoints are always parser-identified files, never folders.
+ */
+export function liftToFiles(graph) {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const fileByPath = new Map(graph.nodes.filter((n) => n.type === 'file').map((n) => [n.path, n]));
+  const owner = (n) => (n.type === 'file' ? n : fileByPath.get(n.path));
+  const merged = new Map();
+  for (const e of graph.edges) {
+    if (e.structural) continue;
+    const s = byId.get(e.source);
+    const t = byId.get(e.target);
+    if (!s || !t) continue;
+    const sf = owner(s);
+    const tf = owner(t);
+    if (!sf || !tf || sf.id === tf.id) continue;
+    const key = `${sf.id}|${tf.id}|${e.relation}`;
+    const lifted = sf.id !== e.source || tf.id !== e.target;
+    const prev = merged.get(key);
+    if (prev) {
+      prev.lines = [...new Set([...prev.lines, ...(e.lines || [])])];
+      prev.lifted_from.push(e.id);
+      continue;
+    }
+    merged.set(key, {
+      ...e,
+      id: lifted ? `lift:${e.relation}:${sf.id}->${tf.id}` : e.id,
+      source: sf.id,
+      target: tf.id,
+      sourcePath: sf.path,
+      targetPath: tf.path,
+      lines: [...(e.lines || [])],
+      lifted,
+      lifted_from: [e.id],
+    });
+  }
+  return [...merged.values()];
+}
+
 /** Apply type/language/directory/relationship filters. Returns a new graph object (same shape). */
 export function applyFilters(graph, filters = DEFAULT_FILTERS) {
   if (!graph) return graph;
+  if (filters.nodeKinds === 'files') {
+    const fileEdges = liftToFiles(graph);
+    const structural = graph.edges.filter((e) => e.structural);
+    graph = { ...graph, edges: [...fileEdges, ...structural] };
+  }
   const unresolved = filters.unresolvedOnly ? unresolvedFileIds(graph) : null;
   const nodes = graph.nodes.filter((n) => {
     if (filters.nodeKinds === 'files' && n.type !== 'file') return false;
@@ -134,6 +181,9 @@ export function findPath(graph, fromId, toId) {
 export const RELATION_STYLES = {
   imports: { label: 'Imports', color: '#f97316', hex: 0xf97316, dash: 'solid', description: 'File imports another file (arrow points to the imported file)' },
   calls: { label: 'Calls', color: '#38bdf8', hex: 0x38bdf8, dash: 'dashed', description: 'Function/method calls a resolved definition in another file' },
+  extends: { label: 'Extends', color: '#e879f9', hex: 0xe879f9, dash: 'solid', description: 'Class/interface/trait inherits from the target' },
+  implements: { label: 'Implements', color: '#a3e635', hex: 0xa3e635, dash: 'dashed', description: 'Type implements an interface or trait' },
+  renders: { label: 'Renders', color: '#facc15', hex: 0xfacc15, dash: 'dotted', description: 'JSX component renders the target component (usage, not a call)' },
   defines: { label: 'Defines', color: '#a855f7', hex: 0xa855f7, dash: 'dotted', description: 'File defines a symbol (structural, hidden by default)' },
   contains: { label: 'Contains', color: '#10b981', hex: 0x10b981, dash: 'dotted', description: 'Structural containment (hidden by default)' },
 };

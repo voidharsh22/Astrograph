@@ -148,6 +148,33 @@ class SymbolResolver:
         self.js_alias_configs: list[tuple[str, str, list[tuple[str, list[str]]]]] = []
         self.config_warnings: list[str] = []
 
+        # Per-language resolvers (Java, Kotlin, Rust) created lazily once all indexes are filled.
+        self._lang_resolvers: dict[str, Any] = {}
+        self._all_imports: list[dict[str, Any]] = []
+        self.relations: list[dict[str, Any]] = []
+
+    LANGUAGE_BY_SUFFIX = {".java": "java", ".kt": "kotlin", ".kts": "kotlin", ".rs": "rust"}
+
+    def index_relations(self, relations: list[dict[str, Any]]) -> None:
+        """Register extends/implements/renders relations emitted by parsers."""
+        self.relations = list(relations)
+
+    def resolver_for(self, file_path: str) -> Any:
+        """Return the language resolver for a file, or None for Python/JS/TS (handled in this class)."""
+        lang = self.LANGUAGE_BY_SUFFIX.get(Path(file_path).suffix.lower())
+        if lang is None:
+            return None
+        resolver = self._lang_resolvers.get(lang)
+        if resolver is None:
+            from app.graph.language_resolvers import JavaResolver, KotlinResolver, RustResolver
+
+            resolver = {"java": JavaResolver, "kotlin": KotlinResolver, "rust": RustResolver}[lang](self)
+            self._lang_resolvers[lang] = resolver
+            resolver.prepare(self._all_imports)
+            if hasattr(resolver, "set_relations"):
+                resolver.set_relations(self.relations)
+        return resolver
+
     def index_inventory(self, files: list[dict[str, Any]]) -> None:
         """Index repository files from scanner inventory."""
         for f in files:
@@ -334,6 +361,9 @@ class SymbolResolver:
             return None, None
 
         file_path = Path(imp.get("file_path", "")).as_posix()
+        lang_resolver = self.resolver_for(file_path)
+        if lang_resolver is not None:
+            return lang_resolver.resolve_import(imp)
         is_python = (
             imp.get("language") == "python"
             or file_path.endswith((".py", ".pyw", ".pyi"))
@@ -630,8 +660,11 @@ class SymbolResolver:
 
     def build_file_import_scopes(self, imports: list[dict[str, Any]]) -> None:
         """Build a lookup table of imported names and modules available in each file."""
+        self._all_imports = list(imports)
         for imp in imports:
             file_path = Path(imp["file_path"]).as_posix()
+            if self.LANGUAGE_BY_SUFFIX.get(Path(file_path).suffix.lower()):
+                continue  # Java/Kotlin/Rust keep their own import tables in language_resolvers
             scope = self.file_import_scopes.setdefault(file_path, {})
 
             target_file, _ = self.resolve_import(imp)
@@ -881,6 +914,9 @@ class SymbolResolver:
             return None, None, "empty_callee"
 
         file_path = Path(call.get("file_path", "")).as_posix()
+        lang_resolver = self.resolver_for(file_path)
+        if lang_resolver is not None:
+            return lang_resolver.resolve_call(call)
         is_python = (
             call.get("language") == "python"
             or file_path.endswith((".py", ".pyw", ".pyi"))
@@ -1460,3 +1496,68 @@ class SymbolResolver:
             ),
             None,
         )
+
+
+    # ------------------------------------------------------------------ relations
+    def resolve_relation(
+        self, rel: dict[str, Any]
+    ) -> tuple[Optional[str], Optional[str], Optional[UnresolvedReference], str]:
+        """Resolve an extends/implements/renders relation.
+
+        Returns ``(source_node_id, target_node_id, unresolved, edge_type)``. ``source_node_id`` is
+        None when the source could not be determined (the relation is then dropped by the caller).
+        """
+        file_path = Path(rel.get("file_path", "")).as_posix()
+        edge_type = rel["kind"].upper()
+        lang_resolver = self.resolver_for(file_path)
+        source: Optional[str] = f"symbol:{rel['source_symbol_id']}" if rel.get("source_symbol_id") else None
+        if lang_resolver is not None:
+            if source is None and hasattr(lang_resolver, "relation_source"):
+                source = lang_resolver.relation_source(rel)
+            target, unresolved, edge_type = lang_resolver.resolve_relation(rel)
+            return source, target, unresolved, edge_type
+        target, unresolved = self._resolve_js_relation(rel, file_path)
+        return source or f"file:{file_path}", target, unresolved, edge_type
+
+    def _resolve_js_relation(
+        self, rel: dict[str, Any], file_path: str
+    ) -> tuple[Optional[str], Optional[UnresolvedReference]]:
+        target = rel.get("target", "")
+        kind = rel["kind"]
+        root_name, _, member = target.partition(".")
+        scope = self.file_import_scopes.get(file_path, {})
+
+        def unresolved(status: str, reason: str) -> tuple[None, UnresolvedReference]:
+            return None, UnresolvedReference(
+                kind="relation", source_file=file_path, caller_id=rel.get("source_symbol_id"),
+                expression=f"{kind} {target}", target_name=target, lineno=rel.get("lineno"),
+                col_offset=rel.get("col_offset"), status=status, reason=reason,
+            )
+
+        wanted = {
+            "extends": ("class", "interface"),
+            "implements": ("interface", "class", "type_alias"),
+            "renders": ("function", "async_function", "class", "method"),
+        }[kind]
+
+        entry = scope.get(root_name)
+        if entry is not None and entry["type"] in ("external_symbol", "external_module"):
+            return unresolved(STATUS_EXTERNAL, f"'{root_name}' comes from external package '{entry.get('module')}'")
+        if member:
+            if entry is not None and entry["type"] == "namespace":
+                sym = self.find_exported_symbol(entry["target_file"], member.split(".")[0])
+                if sym and sym["kind"] in wanted:
+                    return f"symbol:{sym['id']}", None
+            return unresolved(STATUS_UNRESOLVED, f"Member reference '{target}' could not be resolved statically")
+        local = [s for s in self.symbols_by_file_and_name.get((file_path, root_name), []) if s["kind"] in wanted]
+        if len(local) == 1:
+            return f"symbol:{local[0]['id']}", None
+        if entry is not None:
+            if entry["type"] == "symbol" and entry["symbol"]["kind"] in wanted:
+                return f"symbol:{entry['symbol']['id']}", None
+            if entry["type"] == "module_or_attr" and kind == "renders":
+                # Imported default/named component whose definition was not located: link the file.
+                return f"file:{entry['target_file']}", None
+        if len(local) > 1:
+            return unresolved(STATUS_AMBIGUOUS, f"{len(local)} local definitions named '{root_name}'")
+        return unresolved(STATUS_UNRESOLVED, f"'{root_name}' has no matching definition or import in this file")

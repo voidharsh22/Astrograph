@@ -18,15 +18,11 @@ from typing import Any, Callable, Optional
 
 from app.graph.graph_builder import build_graph
 from app.ingestion.scanner import scan_repository
-from app.parsers.javascript_parser import (
-    ALL_SUPPORTED_EXTENSIONS as JS_TS_EXTENSIONS,
-    parse_js_repository_inventory,
-)
-from app.parsers.python_parser import parse_repository_inventory as parse_py_inventory
+from app.parsers.registry import PARSER_SPECS
 
 DIAGNOSTICS_FILENAME = "diagnostics.json"
 DIAGNOSTICS_SCHEMA_VERSION = 1
-PARSEABLE_LANGUAGES = {"Python", "JavaScript", "TypeScript"}
+PARSEABLE_LANGUAGES = {lang for spec in PARSER_SPECS for lang in spec.languages}
 MAX_DETAIL_ITEMS = 200
 
 ProgressCallback = Callable[[str, int], None]
@@ -52,8 +48,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def build_diagnostics(
     inventory: dict[str, Any],
-    py_analysis: dict[str, Any],
-    js_analysis: dict[str, Any],
+    analyses: list[dict[str, Any]],
     graph: dict[str, Any],
     stage_durations_ms: dict[str, int],
     total_duration_ms: int,
@@ -63,9 +58,7 @@ def build_diagnostics(
     inv_summary = inventory.get("summary", {})
     lang_counts = Counter(f.get("language") or "Unknown" for f in files)
 
-    parse_errors = list(py_analysis.get("parse_errors", [])) + list(
-        js_analysis.get("parse_errors", [])
-    )
+    parse_errors = [e for a in analyses for e in a.get("parse_errors", [])]
     files_with_errors: dict[str, list[dict[str, Any]]] = {}
     for err in parse_errors:
         files_with_errors.setdefault(err.get("file_path", "?"), []).append(
@@ -76,18 +69,19 @@ def build_diagnostics(
             }
         )
 
-    py_sum = py_analysis.get("summary", {})
-    js_sum = js_analysis.get("summary", {})
-    parsed_files = (
-        py_sum.get("python_files_parsed", 0)
-        + js_sum.get("javascript_files_parsed", 0)
-        + js_sum.get("typescript_files_parsed", 0)
-    )
-    parseable_discovered = (
-        py_sum.get("python_files_discovered", 0)
-        + js_sum.get("javascript_files_discovered", 0)
-        + js_sum.get("typescript_files_discovered", 0)
-    )
+    def total(suffix: str) -> int:
+        return sum(v for a in analyses for k, v in a.get("summary", {}).items() if k.endswith(suffix) and isinstance(v, int))
+
+    def key_total(key: str) -> int:
+        return sum(a.get("summary", {}).get(key, 0) for a in analyses)
+
+    # Parsers count only files that parsed without syntax errors in *_files_parsed.
+    parsed_files = total("_files_parsed")
+    parseable_discovered = total("_files_discovered")
+    parsed_by_language = {
+        k[: -len("_files_parsed")]: v
+        for a in analyses for k, v in a.get("summary", {}).items() if k.endswith("_files_parsed") and v
+    }
 
     unsupported = Counter()
     for f in files:
@@ -101,6 +95,10 @@ def build_diagnostics(
     calls_by_status = Counter(
         u.get("status") for u in unresolved if u.get("kind") == "call"
     )
+    relations_by_status = Counter(
+        u.get("status") for u in unresolved if u.get("kind") == "relation"
+    )
+    edges_by_type = (graph.get("summary", {}) or {}).get("edges_by_type", {}) or {}
     graph_summary = graph.get("summary", {})
     unresolved_internal = [
         {
@@ -127,7 +125,7 @@ def build_diagnostics(
         )
     if parseable_discovered == 0:
         warnings.append(
-            "No Python, JavaScript or TypeScript files were found; the graph only contains the file tree."
+            "No files in a supported language (Python, JavaScript/JSX, TypeScript/TSX, Java, Kotlin, Rust) were found; the graph only contains the file tree."
         )
     if skipped.get("sensitive_files"):
         warnings.append(
@@ -143,7 +141,8 @@ def build_diagnostics(
             "discovered": len(files),
             "by_language": dict(lang_counts),
             "parseable_discovered": parseable_discovered,
-            "parsed_successfully": max(0, parsed_files - len(files_with_errors)),
+            "parsed_successfully": parsed_files,
+            "parsed_by_language": parsed_by_language,
             "with_syntax_errors": len(files_with_errors),
             "unsupported": sum(unsupported.values()),
             "unsupported_by_extension": dict(unsupported.most_common(25)),
@@ -154,10 +153,11 @@ def build_diagnostics(
             for fp, errs in list(files_with_errors.items())[:MAX_DETAIL_ITEMS]
         ],
         "symbols": {
-            "extracted": py_sum.get("symbols_found", 0) + js_sum.get("symbols_found", 0),
-            "imports_found": py_sum.get("imports_found", 0) + js_sum.get("imports_found", 0),
-            "exports_found": js_sum.get("exports_found", 0),
-            "calls_found": py_sum.get("calls_found", 0) + js_sum.get("calls_found", 0),
+            "extracted": key_total("symbols_found"),
+            "imports_found": key_total("imports_found"),
+            "exports_found": key_total("exports_found"),
+            "calls_found": key_total("calls_found"),
+            "relations_found": key_total("relations_found"),
         },
         "dependencies": {
             "imports_resolved": graph_summary.get("resolved_imports", 0),
@@ -167,6 +167,9 @@ def build_diagnostics(
             "calls_ambiguous": calls_by_status.get("ambiguous", 0),
             "calls_unresolved": calls_by_status.get("unresolved", 0),
             "calls_external": calls_by_status.get("external", 0),
+            "relations_resolved": sum(edges_by_type.get(t, 0) for t in ("EXTENDS", "IMPLEMENTS", "RENDERS")),
+            "relations_unresolved": relations_by_status.get("unresolved", 0) + relations_by_status.get("ambiguous", 0),
+            "relations_external": relations_by_status.get("external", 0),
         },
         "unresolved_internal_imports": unresolved_internal[:MAX_DETAIL_ITEMS],
         "warnings": warnings,
@@ -187,8 +190,6 @@ def run_analysis(
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     inventory_file = artifact_dir / "repository_inventory.json"
-    py_file = artifact_dir / "python_analysis.json"
-    js_file = artifact_dir / "javascript_analysis.json"
     graph_file = artifact_dir / "code_graph.json"
     analytics_file = artifact_dir / "graph_analytics.json"
     diagnostics_file = artifact_dir / DIAGNOSTICS_FILENAME
@@ -204,25 +205,23 @@ def run_analysis(
         return result
 
     timed("scanning", 40, lambda: scan_repository(repository_path=source_dir, output_path=inventory_file))
-    timed(
-        "parsing_python",
-        60,
-        lambda: parse_py_inventory(inventory_path=inventory_file, repo_root=source_dir, output_path=py_file),
-    )
-    timed(
-        "parsing_javascript",
-        75,
-        lambda: parse_js_repository_inventory(
-            inventory_path=inventory_file, repo_root=source_dir, output_path=js_file
-        ),
-    )
+    analysis_files: list[Path] = []
+    step = 30 // max(1, len(PARSER_SPECS))
+    for i, spec in enumerate(PARSER_SPECS):
+        out = artifact_dir / spec.filename
+        analysis_files.append(out)
+        timed(
+            spec.stage,
+            50 + i * step,
+            lambda spec=spec, out=out: spec.run(inventory_path=inventory_file, repo_root=source_dir, output_path=out),
+        )
     graph_obj = timed(
         "building_graph",
         90,
         lambda: build_graph(
             repo_root=source_dir,
             inventory_path=inventory_file,
-            analysis_path=[py_file, js_file],
+            analysis_path=analysis_files,
             output_path=graph_file,
         ),
     )
@@ -236,8 +235,7 @@ def run_analysis(
     notify("saving_results", 98)
     diagnostics = build_diagnostics(
         _read_json(inventory_file),
-        _read_json(py_file),
-        _read_json(js_file),
+        [_read_json(f) for f in analysis_files],
         _read_json(graph_file),
         durations,
         int((time.perf_counter() - started) * 1000),

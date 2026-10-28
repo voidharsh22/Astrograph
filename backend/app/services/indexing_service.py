@@ -11,11 +11,12 @@ from pathlib import Path
 import shutil
 import tempfile
 import uuid
-from typing import Optional
+from typing import Callable, Optional
 
 from app.config import settings
 from app.services.archive_extractor import extract_archive_safely
 from app.services.downloader import download_github_archive
+from app.parsers.registry import analysis_paths
 from app.services.analysis_pipeline import run_analysis
 from app.storage.repository_store import (
     complete_analysis,
@@ -64,8 +65,13 @@ class IndexingService:
         url: str,
         branch: str,
         archive_path: Optional[Path] = None,
+        archive_fetcher: Optional[Callable[[Path], None]] = None,
     ) -> None:
-        """Schedule a background indexing task."""
+        """Schedule a background indexing task.
+
+        ``archive_fetcher`` (e.g. the private GitHub App download) replaces the public
+        download step; everything after the archive exists is the shared pipeline.
+        """
         self.executor.submit(
             self._execute_indexing_pipeline,
             repo_id,
@@ -73,6 +79,7 @@ class IndexingService:
             url,
             branch,
             archive_path,
+            archive_fetcher,
         )
 
     def _execute_indexing_pipeline(
@@ -82,6 +89,7 @@ class IndexingService:
         url: str,
         branch: str,
         archive_path: Optional[Path] = None,
+        archive_fetcher: Optional[Callable[[Path], None]] = None,
     ) -> None:
         """Run the complete multi-stage analysis pipeline."""
         source_dir = settings.get_repo_source_dir(repo_id)
@@ -91,8 +99,7 @@ class IndexingService:
         artifact_dir.mkdir(parents=True, exist_ok=True)
 
         inventory_file = artifact_dir / "repository_inventory.json"
-        py_analysis_file = artifact_dir / "python_analysis.json"
-        js_analysis_file = artifact_dir / "javascript_analysis.json"
+        analysis_files = analysis_paths(artifact_dir)
         code_graph_file = artifact_dir / "code_graph.json"
         graph_analytics_file = artifact_dir / "graph_analytics.json"
 
@@ -115,11 +122,14 @@ class IndexingService:
                 os.close(temp_fd)
                 temp_zip_file = Path(temp_zip_str)
 
-                download_github_archive(
-                    url=url,
-                    branch=branch,
-                    dest_path=temp_zip_file,
-                )
+                if archive_fetcher is not None:
+                    archive_fetcher(temp_zip_file)
+                else:
+                    download_github_archive(
+                        url=url,
+                        branch=branch,
+                        dest_path=temp_zip_file,
+                    )
 
             # ----------------------------------------------------
             # Stage B: Extracting
@@ -135,8 +145,7 @@ class IndexingService:
 
             for stale_file in [
                 inventory_file,
-                py_analysis_file,
-                js_analysis_file,
+                *analysis_files,
                 code_graph_file,
                 graph_analytics_file,
                 artifact_dir / "cluster_summaries.json",
@@ -171,8 +180,7 @@ class IndexingService:
 
             for path, name in [
                 (inventory_file, "repository inventory"),
-                (py_analysis_file, "Python analysis"),
-                (js_analysis_file, "JavaScript analysis"),
+                *[(f, f"{f.stem} artifact") for f in analysis_files],
                 (code_graph_file, "code graph"),
                 (graph_analytics_file, "graph analytics"),
             ]:

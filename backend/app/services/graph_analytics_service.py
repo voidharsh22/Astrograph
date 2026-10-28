@@ -32,6 +32,9 @@ EDGE_WEIGHT_MAP: dict[str, float] = {
     EDGE_TYPE_DEFINES: 1.0,
     EDGE_TYPE_IMPORTS: 0.7,
     EDGE_TYPE_CALLS: 0.6,
+    "EXTENDS": 0.8,
+    "IMPLEMENTS": 0.7,
+    "RENDERS": 0.6,
 }
 DEFAULT_EDGE_WEIGHT: float = 1.0
 

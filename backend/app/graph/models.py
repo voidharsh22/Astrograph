@@ -37,6 +37,10 @@ EDGE_TYPE_CONTAINS: str = "CONTAINS"
 EDGE_TYPE_DEFINES: str = "DEFINES"
 EDGE_TYPE_IMPORTS: str = "IMPORTS"
 EDGE_TYPE_CALLS: str = "CALLS"
+# Type-level relations (added for Java/Kotlin/Rust/TSX): inheritance and JSX component usage.
+EDGE_TYPE_EXTENDS: str = "EXTENDS"
+EDGE_TYPE_IMPLEMENTS: str = "IMPLEMENTS"
+EDGE_TYPE_RENDERS: str = "RENDERS"
 
 VALID_EDGE_TYPES: frozenset[str] = frozenset(
     {
@@ -44,6 +48,9 @@ VALID_EDGE_TYPES: frozenset[str] = frozenset(
         EDGE_TYPE_DEFINES,
         EDGE_TYPE_IMPORTS,
         EDGE_TYPE_CALLS,
+        EDGE_TYPE_EXTENDS,
+        EDGE_TYPE_IMPLEMENTS,
+        EDGE_TYPE_RENDERS,
     }
 )
 
@@ -100,7 +107,7 @@ class GraphEdge:
 class UnresolvedReference:
     """Represents an import or call expression that could not be resolved to a unique local node."""
 
-    kind: str  # "import" or "call"
+    kind: str  # "import", "call" or "relation" (inheritance / JSX usage)
     source_file: str
     expression: str
     status: str  # "external", "unresolved", "ambiguous"

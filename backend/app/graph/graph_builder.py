@@ -98,6 +98,8 @@ class GraphBuilder:
         imports: list[dict[str, Any]] = []
         exports: list[dict[str, Any]] = []
         calls: list[dict[str, Any]] = []
+        relations: list[dict[str, Any]] = []
+        analyzed_languages: set[str] = set()
         seen_symbol_ids: set[str] = set()
 
         python_parser_ran = False
@@ -126,6 +128,10 @@ class GraphBuilder:
             imports.extend(ana.get("imports", []))
             exports.extend(ana.get("exports", []))
             calls.extend(ana.get("calls", []))
+            relations.extend(ana.get("relations", []))
+            for key in summary:
+                if key.endswith("_files_discovered"):
+                    analyzed_languages.add(key[: -len("_files_discovered")])
 
         # Fallback detection if summary was minimal
         if not python_parser_ran and not js_ts_parser_ran:
@@ -135,6 +141,7 @@ class GraphBuilder:
         self.resolver.index_inventory(inventory_files)
         self.resolver.index_exports(exports)
         self.resolver.index_symbols(symbols)
+        self.resolver.index_relations(relations)
         self.resolver.build_file_import_scopes(imports)
 
         # Step 2: Build structural nodes (Repository, Directories, Files, Symbols)
@@ -143,6 +150,7 @@ class GraphBuilder:
             inventory_files,
             python_parser_ran=python_parser_ran,
             js_ts_parser_ran=js_ts_parser_ran,
+            analyzed_languages=analyzed_languages,
         )
         self._build_symbol_nodes(symbols)
 
@@ -155,6 +163,9 @@ class GraphBuilder:
 
         # Step 5: Resolve and build CALLS edges
         self._build_call_edges(calls)
+
+        # Step 5b: Inheritance (EXTENDS/IMPLEMENTS) and JSX usage (RENDERS) edges
+        self._build_relation_edges(relations)
 
         # Step 6: Validate edge endpoints
         self._validate_edge_endpoints()
@@ -197,8 +208,11 @@ class GraphBuilder:
         inventory_files: list[dict[str, Any]],
         python_parser_ran: bool = True,
         js_ts_parser_ran: bool = False,
+        analyzed_languages: Optional[set[str]] = None,
     ) -> None:
         """Create directory and file nodes from the inventory report."""
+        extra_langs = {"java": "Java", "kotlin": "Kotlin", "rust": "Rust"}
+        analyzed_extra = {extra_langs[k] for k in (analyzed_languages or set()) if k in extra_langs}
         seen_dirs: set[str] = set()
 
         for f in inventory_files:
@@ -211,6 +225,8 @@ class GraphBuilder:
             if lang == "Python" and python_parser_ran:
                 is_analyzed = True
             elif lang in ("JavaScript", "TypeScript") and js_ts_parser_ran:
+                is_analyzed = True
+            elif lang in analyzed_extra:
                 is_analyzed = True
 
             self.nodes[file_node_id] = GraphNode(
@@ -284,6 +300,12 @@ class GraphBuilder:
                     "bases": sym.get("bases"),
                     "is_async": sym.get("is_async", False),
                     "is_exported": sym.get("is_exported", False),
+                    # Optional language-specific fields (Java/Kotlin/Rust); absent for Python/JS/TS.
+                    **{
+                        k: sym[k]
+                        for k in ("namespace", "receiver_type", "end_col_offset")
+                        if sym.get(k) is not None
+                    },
                 },
             )
 
@@ -505,6 +527,32 @@ class GraphBuilder:
                         self.unresolved_calls_count += 1
                 else:
                     self.unresolved_calls_count += 1
+
+    def _build_relation_edges(self, relations: list[dict[str, Any]]) -> None:
+        """Create EXTENDS / IMPLEMENTS / RENDERS edges; unresolved targets are recorded, never faked."""
+        for rel in relations:
+            source, target, unresolved, edge_type = self.resolver.resolve_relation(rel)
+            file_path = Path(rel["file_path"]).as_posix()
+            if source is None or source not in self.nodes:
+                source = f"file:{file_path}" if f"file:{file_path}" in self.nodes else None
+            if source is None:
+                continue
+            if target and target in self.nodes:
+                self._add_edge(
+                    source=source,
+                    target=target,
+                    edge_type=edge_type,
+                    metadata={
+                        "source_file": file_path,
+                        "target_name": rel.get("target"),
+                        "line": rel.get("lineno"),
+                        "col_offset": rel.get("col_offset"),
+                        "resolution_status": "resolved",
+                        "file_level": target.startswith("file:"),
+                    },
+                )
+            elif unresolved is not None:
+                self.unresolved_references.append(unresolved)
 
     def _add_edge(
         self,

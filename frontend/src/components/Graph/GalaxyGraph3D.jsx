@@ -1087,7 +1087,10 @@ export default function GalaxyGraph3D({
           if (edge.relation === 'calls') defaultColor = 0x38bdf8;
           else if (edge.relation === 'defines') defaultColor = 0xa855f7;
           else if (edge.relation === 'contains') defaultColor = 0x10b981;
-          const dashed = edge.relation === 'calls';
+          else if (edge.relation === 'extends') defaultColor = 0xe879f9;
+          else if (edge.relation === 'implements') defaultColor = 0xa3e635;
+          else if (edge.relation === 'renders') defaultColor = 0xfacc15;
+          const dashed = ['calls', 'implements', 'renders'].includes(edge.relation);
 
           const edgeGeo = new THREE.BufferGeometry().setFromPoints([p1, p2]);
           const edgeMat = dashed
@@ -1548,6 +1551,9 @@ export default function GalaxyGraph3D({
         <div className="text-gray-400 text-[10px] uppercase font-bold tracking-wider">Edges (arrow = direction)</div>
         <div className="flex items-center gap-2"><span style={{ color: '#f97316' }}>━━▶</span> imports (solid): A imports B</div>
         <div className="flex items-center gap-2"><span style={{ color: '#38bdf8' }}>╌╌▶</span> calls (dashed): A calls B</div>
+        <div className="flex items-center gap-2"><span style={{ color: '#e879f9' }}>━━▶</span> extends (solid): A inherits B</div>
+        <div className="flex items-center gap-2"><span style={{ color: '#a3e635' }}>╌╌▶</span> implements (dashed): A implements B</div>
+        <div className="flex items-center gap-2"><span style={{ color: '#facc15' }}>╌╌▶</span> renders (dashed): component A renders B</div>
         <div className="text-gray-500 text-[10px]">Folders are visual groups, never endpoints. Unresolved imports are listed in the panel, not drawn.</div>
       </div>
     </div>

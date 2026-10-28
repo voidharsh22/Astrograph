@@ -67,6 +67,37 @@ class Settings:
         self.ai_max_output_tokens: int = int(os.environ.get("AI_MAX_OUTPUT_TOKENS", "2048"))
         self.ai_max_context_chars: int = int(os.environ.get("AI_MAX_CONTEXT_CHARS", "24000"))
 
+        # GitHub App (private repository access). All optional: public imports never need these.
+        self.github_app_id: str = os.environ.get("GITHUB_APP_ID", "").strip()
+        self.github_app_slug: str = os.environ.get("GITHUB_APP_SLUG", "").strip()
+        self.github_app_client_id: str = os.environ.get("GITHUB_APP_CLIENT_ID", "").strip()
+        self.github_app_client_secret: str = os.environ.get("GITHUB_APP_CLIENT_SECRET", "").strip()
+        self.github_app_private_key: str = os.environ.get("GITHUB_APP_PRIVATE_KEY", "").replace("\\n", "\n").strip()
+        self.github_app_private_key_path: str = os.environ.get("GITHUB_APP_PRIVATE_KEY_PATH", "").strip()
+        # Origin of this backend as GitHub reaches it (OAuth callback) and of the web UI (post-login redirect).
+        self.public_backend_url: str = os.environ.get("ASTRAL_PUBLIC_BACKEND_URL", "http://127.0.0.1:8000").rstrip("/")
+        self.frontend_url: str = os.environ.get("ASTRAL_FRONTEND_URL", "http://localhost:5173").rstrip("/")
+        self.github_session_ttl_minutes: int = int(os.environ.get("ASTRAL_GITHUB_SESSION_TTL_MINUTES", "480"))
+        # Account authentication (email/password + Google OpenID Connect). Credentials stay server-side.
+        self.google_client_id: str = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+        self.google_client_secret: str = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
+        self._google_redirect_uri: str = os.environ.get("GOOGLE_REDIRECT_URI", "").strip()
+        self.session_days: int = int(os.environ.get("ASTRAL_SESSION_DAYS", "7"))
+
+        # Private source is never sent to Gemini/Anthropic unless the operator opts in.
+        self.allow_ai_on_private_repos: bool = os.environ.get(
+            "ASTRAL_ALLOW_AI_ON_PRIVATE_REPOS", "false"
+        ).strip().lower() in ("1", "true", "yes")
+
+    @property
+    def google_redirect_uri(self) -> str:
+        """Must match an "Authorized redirect URI" in Google Cloud Console exactly."""
+        return self._google_redirect_uri or f"{self.frontend_url}/api/auth/google/callback"
+
+    @property
+    def cookies_secure(self) -> bool:
+        return self.frontend_url.startswith("https://")
+
     @property
     def db_path(self) -> Path:
         """Absolute path to the SQLite database file."""

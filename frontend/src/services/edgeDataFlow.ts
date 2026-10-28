@@ -853,6 +853,14 @@ export async function fetchLiveSource(repoId: string, filePath: string): Promise
     const t = setTimeout(() => ctl.abort(), 8000)
     const res = await fetch(`${base}/api/repositories/${encodeURIComponent(repoId)}/file?path=${encodeURIComponent(filePath)}`, {
       signal: ctl.signal,
+      headers: (() => {
+        try {
+          const tok = sessionStorage.getItem('astrograph_gh_session')
+          return tok ? { Authorization: `Bearer ${tok}` } : undefined
+        } catch {
+          return undefined
+        }
+      })(),
     })
     clearTimeout(t)
     if (!res.ok) return null

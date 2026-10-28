@@ -6,11 +6,12 @@ from contextlib import asynccontextmanager
 import logging
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import astral_ai, health, jobs, repositories
+from app.api.deps import enforce_repository_access
+from app.api.routes import astral_ai, auth, github, health, jobs, repositories
 from app.config import settings
 from app.services.indexing_service import indexing_service
 from app.storage.database import init_db
@@ -22,6 +23,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("astral.api")
+# httpx logs full request URLs at INFO; GitHub's signed archive redirect URLs carry a short-lived token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 @asynccontextmanager
@@ -65,9 +68,13 @@ app.add_middleware(
 
 # Register API routes under /api
 app.include_router(health.router, prefix="/api")
-app.include_router(repositories.router, prefix="/api")
-app.include_router(jobs.router, prefix="/api")
-app.include_router(astral_ai.router, prefix="/api")
+# Private (GitHub App) repositories are gated per owner; public repositories pass straight through.
+_repo_access = [Depends(enforce_repository_access)]
+app.include_router(repositories.router, prefix="/api", dependencies=_repo_access)
+app.include_router(jobs.router, prefix="/api", dependencies=_repo_access)
+app.include_router(astral_ai.router, prefix="/api", dependencies=_repo_access)
+app.include_router(github.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
 
 
 @app.exception_handler(Exception)

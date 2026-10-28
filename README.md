@@ -246,3 +246,122 @@ backend/data/
 - **AI**: configure `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY`) in `backend/.env`. `GET /api/ai/status`, streaming `POST /api/repositories/{id}/ai/chat`,
   plus `/ai/architecture`, `/ai/onboarding`, `/ai/graph-query`, `/ai/advice`, `/ai/impact` and deterministic `/insights/{health,impact,path}`.
 - **Tests**: `cd backend && python -m pytest`; `cd frontend && node --test src/services/graphView.test.mjs && npm run build`.
+
+
+---
+
+## Language support (JSX, TSX, Java, Kotlin, Rust)
+
+Parsers are registered in `backend/app/parsers/registry.py` (one `ParserSpec` per language; the scanner decides the language,
+each language has exactly one parser). Java, Kotlin and Rust are tree-sitter adapters built on `parsers/common.py`; resolution
+lives in `graph/language_resolvers.py`; the graph builder is language-neutral. Install: `pip install -r backend/requirements.txt`.
+
+| Capability | JSX | TSX | Java | Kotlin | Rust |
+|---|---|---|---|---|---|
+| Symbols with line/column ranges, deterministic IDs | yes | yes | yes | yes | yes |
+| Imports (+ aliases / static / wildcard / `mod`) | yes | yes | yes (static, wildcard) | yes (aliases, wildcard) | yes (`use` trees, aliases, `mod x;`, `pub use` re-exports) |
+| Cross-file import resolution | relative, index files, extensions, tsconfig aliases | same | package + FQN | package + FQN + alias | crate-relative module paths, `crate/self/super`, workspace crates via `Cargo.toml` |
+| Calls | yes (JSX is **not** a call) | yes (types are not calls) | yes, overloads separated by arity | yes (functions, methods, extensions, companions/objects) | functions, `Type::assoc()`, `.method()` on typed receivers |
+| Inheritance edges (`EXTENDS`/`IMPLEMENTS`) | `extends` (incl. `React.Component`) | + `implements`, interface `extends` | yes | yes (classified by the target's kind) | trait impls, supertraits |
+| JSX component usage (`RENDERS`) | yes | yes | n/a | n/a | n/a |
+| Unresolved / external references recorded | yes | yes | yes | yes | yes (macros never expanded) |
+
+Graph additions: edge types `EXTENDS`, `IMPLEMENTS`, `RENDERS`; optional symbol fields `namespace`, `receiver_type`,
+`end_col_offset` (present only for the new languages). Python/JS/TS output is unchanged.
+
+Known limitations: resolution is syntactic (no type inference beyond declared types and `new Foo()` / `Foo::new()`), so calls on
+chained or inferred receivers, lambdas, reflection, dependency injection, generated code and macros stay unresolved. Java/Kotlin
+fields and properties are not graph nodes (only used for receiver types). Kotlin overloads with default arguments resolve by
+argument count only when unambiguous. `tree-sitter-kotlin` 1.1.0 reports a syntax error for members written on the same line as the
+class's opening brace (`class A { fun f() {} }`); such files are listed in diagnostics and still yield partial symbols. Python
+classes do not yet emit `EXTENDS` edges. Rust: trait-provided/derived methods and generic-bound method dispatch are not modelled.
+
+
+## Private repositories (GitHub App)
+
+Public URL imports and ZIP uploads are unchanged and need no GitHub credentials. To analyse **private**
+repositories, register a GitHub App once (this cannot be automated) and configure the backend.
+
+### One-time GitHub App setup
+
+1. GitHub -> Settings -> Developer settings -> GitHub Apps -> **New GitHub App**.
+2. **Callback URL**: `<ASTRAL_PUBLIC_BACKEND_URL>/api/github/callback` (default `http://127.0.0.1:8000/api/github/callback`).
+   Tick **Request user authorization (OAuth) during installation** and set the **Setup URL** to the same callback URL.
+   Leave **Expire user authorization tokens** enabled. Untick **Webhook -> Active** (no webhooks are used).
+3. **Repository permissions** (least privilege, read-only): **Contents: Read-only**, **Metadata: Read-only**. No other
+   repository, organization or account permissions.
+4. Create the app, then note the **App ID**, **Client ID** and the app **slug** (the name in `github.com/apps/<slug>`);
+   **Generate a new client secret** and **Generate a private key** (a `.pem` download).
+5. Put the values in `backend/.env` (see `.env.example`): `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_CLIENT_ID`,
+   `GITHUB_APP_CLIENT_SECRET`, and `GITHUB_APP_PRIVATE_KEY_PATH` (or `GITHUB_APP_PRIVATE_KEY` with `
+` escapes).
+   Set `ASTRAL_PUBLIC_BACKEND_URL` / `ASTRAL_FRONTEND_URL` if you do not run on the defaults.
+6. `pip install -r requirements.txt` (adds `PyJWT[crypto]`, needed to sign the App JWT with RS256) and restart the backend.
+7. **Install** the app on your account/organization and choose the repositories it may read.
+
+### How it works
+
+Dashboard -> **Connect GitHub** -> GitHub authorization (OAuth `state` validated, single use, 10 min) -> pick an
+authorized repository (private/public shown) and branch or commit -> **Analyse**. The backend then:
+
+1. verifies with the user's own GitHub token that they can read the repository, and with the App JWT that the App is installed on it;
+2. mints a short-lived installation token limited to that one repository with `contents: read` + `metadata: read`;
+3. downloads the zipball inside the indexing job, then runs the **same** safe extraction, parsing, graph and analytics pipeline as public imports
+   (`/api/repositories/{id}/graph` etc. return the same shapes).
+
+API: `GET /api/github/status`, `POST /api/github/connect`, `GET /api/github/callback`, `POST|DELETE /api/github/session`,
+`GET /api/github/repositories`, `GET /api/github/repositories/{owner}/{repo}/branches`, `POST /api/github/analyze`.
+
+### Security and data handling
+
+- The App private key, client secret, GitHub user tokens and installation tokens never leave the backend process. The
+  browser holds only an opaque Astrograph session token (sessionStorage, sent as `Authorization: Bearer`), obtained through
+  a one-time ticket bound to the tab that started sign-in. Sessions are in memory: they end on backend restart, after
+  `ASTRAL_GITHUB_SESSION_TTL_MINUTES`, or on **Disconnect** (which also revokes the GitHub token).
+- A private import is owned by the GitHub user who created it. Every `/api/repositories/{id}/...`, `/api/jobs/{id}...` and
+  AI route checks that owner (non-owners and anonymous callers get 404), and the repository list shows only your own. Public
+  repositories are unrestricted exactly as before. A public URL import can never attach to a private record.
+- Analysed code is never executed. Archive paths, symlinks, file counts and sizes are validated by the existing extractor/limits.
+- **Persistence**: the archive is downloaded to a temp file that is deleted right after extraction (also on failure). The extracted
+  **source tree and derived graph artifacts are stored on the server disk** under `ASTRAL_DATA_DIR/repositories/<id>/` (needed for the
+  source viewer and graph), and metadata in SQLite. `DELETE /api/repositories/{id}` (owner only) removes the records and the whole
+  workspace. Nothing is deleted automatically otherwise. Disconnecting GitHub does not delete already-imported repositories.
+- **AI**: AI chat, cluster/workflow summaries and other AI routes are **disabled for private repositories** so source, symbol and path
+  data are not sent to Gemini/Anthropic. Set `ASTRAL_ALLOW_AI_ON_PRIVATE_REPOS=true` to opt in knowingly.
+- Logs and stored job errors contain fixed messages only (no tokens, signed URLs or source). GitHub API rate limits are reported to the user.
+
+
+## Authentication (email/password + Google)
+
+Sign-in is verified by the backend; the browser only holds an `HttpOnly` session cookie (`astral_session`) that
+JavaScript cannot read. There is no demo mode, guest login or client-side credential check any more.
+
+- **Signup** `POST /api/auth/signup`: emails are normalized (NFKC, trimmed, lower-cased) and a database **unique index**
+  (`users.email`) guarantees one account per email even under concurrent requests. A duplicate returns 409
+  "An account with this email already exists. Please log in instead." Signup does not sign anyone in; the UI moves to the login form.
+  Password policy is unchanged: 6-128 characters.
+- **Login** `POST /api/auth/login`: passwords are hashed with salted **scrypt** (N=2^15, r=8, p=1; stdlib, no new dependency) and compared in
+  constant time. Unknown email, wrong password and Google-only accounts all return the same `Invalid email or password.`
+  and cost the same CPU. Limits: 5 failures / 15 min per email and 30 / 15 min per IP (HTTP 429, `Retry-After`).
+- **Sessions**: random token in an `HttpOnly`, `SameSite=Lax` cookie (`Secure` when `ASTRAL_FRONTEND_URL` is https); only its SHA-256 is stored in
+  `auth_sessions`. `GET /api/auth/me` is how the UI learns who is signed in; `POST /api/auth/logout` deletes the row. State-changing
+  auth requests reject a foreign `Origin` (CSRF guard).
+- **Google** (`GET /api/auth/google/start` -> Google -> `GET /api/auth/google/callback`): authorization-code flow with PKCE (S256), `state`
+  bound to the browser by a cookie, a `nonce`, and `prompt=select_account` so Google always shows the account chooser. The server exchanges the
+  code with the client secret and verifies the ID token (RS256 signature against Google's JWKS, issuer, audience, expiry, nonce,
+  `email_verified`). Accounts are keyed by Google's stable `sub` in `oauth_identities`; repeat logins resolve to the same user.
+  A Google login is **never linked to an existing password account by email alone**; that user is told to log in with their password.
+  Linking an existing password account to Google is not implemented (it would need an explicit, authenticated link flow).
+- **Not available**: password reset and email verification need a mail service that this project does not have.
+  The old Firebase reset/verification calls only existed when Firebase was configured and were never enforced.
+- Same-origin requirement: the UI calls `/api/auth/*` on its own origin. Vite proxies `/api` to the backend in `npm run dev` / `preview`; in
+  production serve UI and API behind one origin (reverse proxy) and set `ASTRAL_FRONTEND_URL` to that https origin.
+- Note: the repository/graph/AI API routes are not gated by this login (unchanged); private GitHub repositories keep their own owner checks.
+
+### Google Cloud Console setup (manual)
+
+1. Create a project -> *APIs & Services* -> *OAuth consent screen* (External; scopes `openid`, `email`, `profile` only).
+2. *Credentials* -> *Create credentials* -> *OAuth client ID* -> **Web application**.
+3. **Authorized redirect URI**: `http://localhost:5173/api/auth/google/callback` for local dev (or `<ASTRAL_FRONTEND_URL>/api/auth/google/callback`;
+   it must match `GOOGLE_REDIRECT_URI` / the default character for character). Add your production https URI too.
+4. Put the client ID and secret in `backend/.env` as `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` and restart the backend.

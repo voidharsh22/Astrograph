@@ -32,7 +32,7 @@ THRESHOLDS = {
     "hotspot_min_fan_in": 3,
     "hotspot_min_dependent_ratio": 0.25,
 }
-DEPENDENCY_EDGE_TYPES = ("IMPORTS", "CALLS")
+DEPENDENCY_EDGE_TYPES = ("IMPORTS", "CALLS", "EXTENDS", "IMPLEMENTS", "RENDERS")
 ENTRY_NAME_HINTS = (
     "main", "__main__", "app", "server", "index", "cli", "manage", "wsgi", "asgi", "run",
 )

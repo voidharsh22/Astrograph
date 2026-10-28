@@ -511,6 +511,9 @@ export default function CytoscapeGalaxyGraph({
             'opacity': 1,
           },
         },
+        { selector: 'edge[relation = "extends"]', style: { 'line-color': '#e879f9', 'target-arrow-color': '#e879f9', 'line-style': 'solid', 'width': 2 } },
+        { selector: 'edge[relation = "implements"]', style: { 'line-color': '#a3e635', 'target-arrow-color': '#a3e635', 'line-style': 'dashed' } },
+        { selector: 'edge[relation = "renders"]', style: { 'line-color': '#facc15', 'target-arrow-color': '#facc15', 'line-style': 'dotted' } },
         {
           selector: 'edge.labeled',
           style: {
@@ -990,6 +993,9 @@ export default function CytoscapeGalaxyGraph({
             <option value="all">All dependencies</option>
             <option value="imports">Imports only</option>
             <option value="calls">Function calls</option>
+            <option value="extends">Extends</option>
+            <option value="implements">Implements</option>
+            <option value="renders">JSX renders</option>
             <option value="defines">Defines</option>
             <option value="contains">Contains / Uses</option>
             <option value="cross">Cross-folder only</option>

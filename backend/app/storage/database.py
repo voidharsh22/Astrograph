@@ -110,6 +110,52 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ON repositories(url, branch);
         """,
     ),
+    (
+        3,
+        "repositories.owner_github_user_id for private GitHub App imports",
+        """
+        ALTER TABLE repositories ADD COLUMN owner_github_user_id INTEGER;
+        CREATE INDEX IF NOT EXISTS idx_repositories_owner_github
+            ON repositories(owner_github_user_id)
+        """,
+    ),
+    (
+        4,
+        "users, oauth_identities and auth_sessions for server-side authentication",
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            name TEXT NOT NULL,
+            password_hash TEXT,
+            picture TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            last_login_at TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_users_email ON users(email);
+
+        CREATE TABLE IF NOT EXISTS oauth_identities (
+            provider TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            email TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (provider, subject),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_oauth_identities_user ON oauth_identities(user_id);
+
+        CREATE TABLE IF NOT EXISTS auth_sessions (
+            token_hash TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at REAL NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id)
+        """,
+    ),
 ]
 
 

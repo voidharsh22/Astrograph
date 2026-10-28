@@ -63,6 +63,7 @@ RELATION_PRIORITY: dict[str, int] = {
     EDGE_TYPE_CALLS: 0,
     EDGE_TYPE_IMPORTS: 1,
     EDGE_TYPE_DEFINES: 2,
+    "RENDERS": 1,  # component usage ranks with imports; inheritance is not an execution path
 }
 
 

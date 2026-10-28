@@ -103,7 +103,8 @@ export function normalizeGraphData(rawData) {
 
   sourceNodes.forEach((raw, idx) => {
     // Determine path and clean label
-    const rawPath = raw.metadata?.path || raw.path || raw.name || raw.label || `file_${idx}`;
+    // Symbol nodes carry `file_path` (the file that defines them); files carry `path`.
+    const rawPath = raw.metadata?.path || raw.metadata?.file_path || raw.path || raw.name || raw.label || `file_${idx}`;
     const cleanPath = rawPath.replace(/\\/g, '/');
     const pathParts = cleanPath.split('/');
     const defaultLabel = raw.name || pathParts[pathParts.length - 1] || raw.label || cleanPath;
@@ -197,6 +198,9 @@ export function normalizeGraphData(rawData) {
     // Normalize relation types: 'imports', 'calls', 'defines', 'contains'
     let normRelation = 'imports';
     if (relation.includes('call')) normRelation = 'calls';
+    else if (relation.includes('extend')) normRelation = 'extends';
+    else if (relation.includes('implement')) normRelation = 'implements';
+    else if (relation.includes('render')) normRelation = 'renders';
     else if (relation.includes('define')) normRelation = 'defines';
     else if (relation.includes('contain')) normRelation = 'contains';
     else if (relation.includes('import')) normRelation = 'imports';

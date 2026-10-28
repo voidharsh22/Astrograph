@@ -111,6 +111,16 @@ function networkError(): AstralAiError {
   return new AstralAiError('backend_unreachable', `Cannot reach the Astrograph backend at ${API_BASE}. Start it and retry.`, true)
 }
 
+// Private (GitHub App) repositories need the Astrograph session token; public ones ignore it.
+function githubAuthHeaders(): Record<string, string> {
+  try {
+    const t = sessionStorage.getItem('astrograph_gh_session')
+    return t ? { Authorization: `Bearer ${t}` } : {}
+  } catch {
+    return {}
+  }
+}
+
 // ─── Status ───────────────────────────────────────────────────────────────────
 
 export async function getAssistantStatus(): Promise<AssistantStatus> {
@@ -160,7 +170,7 @@ export async function runAstralTurn(opts: TurnOptions): Promise<string> {
   try {
     res = await fetch(`${API_BASE}/api/repositories/${encodeURIComponent(opts.repoId)}/ai/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream', ...githubAuthHeaders() },
       body: JSON.stringify({
         question: opts.userText,
         history: trimHistory(opts.history),
@@ -221,7 +231,7 @@ export async function runAstralTurn(opts: TurnOptions): Promise<string> {
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    res = await fetch(`${API_BASE}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...githubAuthHeaders() }, body: JSON.stringify(body) })
   } catch {
     throw networkError()
   }
@@ -232,7 +242,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 async function getJson<T>(path: string): Promise<T> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}${path}`)
+    res = await fetch(`${API_BASE}${path}`, { headers: githubAuthHeaders() })
   } catch {
     throw networkError()
   }
