@@ -20,6 +20,7 @@ import tree_sitter_javascript as tsjs
 import tree_sitter_typescript as tsts
 
 from app.parsers.models import (
+    Relation,
     Call,
     Export,
     FileParseResult,
@@ -73,6 +74,7 @@ class JavaScriptTreeSitterVisitor:
         self.imports: list[Import] = []
         self.exports: list[Export] = []
         self.calls: list[Call] = []
+        self.relations: list[Relation] = []
         self.errors: list[ParseError] = []
 
         # Scope stack: list of (qualified_name, scope_type) e.g. ("PaymentService", "class")
@@ -276,6 +278,9 @@ class JavaScriptTreeSitterVisitor:
         if ntype == "enum_declaration":
             self._visit_enum_declaration(node)
             return
+
+        if ntype in ("jsx_opening_element", "jsx_self_closing_element"):
+            self._visit_jsx_tag(node)  # then fall through to child recursion
 
         if ntype == "assignment_expression":
             if self._visit_assignment_expression(node):
@@ -957,6 +962,46 @@ class JavaScriptTreeSitterVisitor:
         return False
 
 
+    # ------------------------------------------------------------------
+    # JSX usage and heritage relations
+    # ------------------------------------------------------------------
+    def _add_relation(self, kind: str, target: str, node: ts.Node, source_id: Optional[str]) -> None:
+        if target:
+            self.relations.append(
+                Relation(kind, target, self.file_path, self._lineno(node), self._col_offset(node), source_id, self.language)
+            )
+
+    def _visit_jsx_tag(self, node: ts.Node) -> None:
+        """Record `<UserCard />` as a `renders` relation.
+
+        Lowercase tags (`div`) are intrinsic DOM elements and fragments (`<>`) have no name, so
+        neither is a component reference. `<Foo.Bar />` keeps its dotted path. This is a usage
+        relation, deliberately not a function call.
+        """
+        name_node = node.child_by_field_name("name")
+        if name_node is None:
+            return
+        if name_node.type == "identifier":
+            target = self._text(name_node)
+            if not target[:1].isupper():
+                return
+        elif name_node.type == "member_expression":
+            target = self._text(name_node)
+            if not target.split(".")[0][:1].isupper():
+                return
+        else:
+            return
+        caller = self._func_stack[-1] if self._func_stack else None
+        self._add_relation("renders", target, node, caller.id if caller else None)
+
+    def _heritage_target(self, node: ts.Node) -> str:
+        if node.type in ("identifier", "type_identifier", "member_expression", "nested_type_identifier"):
+            return self._text(node)
+        if node.type == "generic_type":
+            first = next((c for c in node.children if c.is_named), None)
+            return self._heritage_target(first) if first is not None else ""
+        return ""
+
     def _visit_class_declaration(
         self, node: ts.Node, is_exported: bool = False
     ) -> None:
@@ -1013,6 +1058,19 @@ class JavaScriptTreeSitterVisitor:
             is_exported=is_exported,
         )
         self.symbols.append(class_sym)
+
+        if heritage_node:
+            for c in heritage_node.children:
+                if c.type == "extends_clause":
+                    for sub in c.children:
+                        if sub.is_named and sub.type != "type_arguments":
+                            self._add_relation("extends", self._heritage_target(sub), sub, symbol_id)
+                elif c.type == "implements_clause":
+                    for sub in c.children:
+                        if sub.is_named:
+                            self._add_relation("implements", self._heritage_target(sub), sub, symbol_id)
+                elif c.is_named:  # plain JavaScript: `class A extends B`
+                    self._add_relation("extends", self._heritage_target(c), c, symbol_id)
 
         # Enter class scope
         self._scope_stack.append((qualified_name, "class"))
@@ -1107,6 +1165,12 @@ class JavaScriptTreeSitterVisitor:
                 for sub in c.children:
                     if sub.type in ("identifier", "type_identifier"):
                         bases.append(self._text(sub))
+
+        for c in node.children:
+            if c.type == "extends_type_clause":
+                for sub in c.children:
+                    if sub.is_named:
+                        self._add_relation("extends", self._heritage_target(sub), sub, symbol_id)
 
         base_str = f" extends {', '.join(bases)}" if bases else ""
         signature = f"interface {name}{base_str}"
@@ -1344,6 +1408,7 @@ def parse_js_source_code(
         imports=visitor.imports,
         calls=visitor.calls,
         exports=visitor.exports,
+        relations=visitor.relations,
         errors=visitor.errors,
     )
 
@@ -1452,6 +1517,7 @@ def parse_js_repository_inventory(
     all_imports: list[Import] = []
     all_exports: list[Export] = []
     all_calls: list[Call] = []
+    all_relations: list[Relation] = []
     all_errors: list[ParseError] = []
 
     files_with_errors = 0
@@ -1479,6 +1545,7 @@ def parse_js_repository_inventory(
         all_imports.extend(result.imports)
         all_exports.extend(result.exports)
         all_calls.extend(result.calls)
+        all_relations.extend(result.relations)
 
     # Sort deterministically
     all_symbols.sort(key=lambda s: (s.file_path, s.lineno, s.col_offset, s.id))
@@ -1511,8 +1578,11 @@ def parse_js_repository_inventory(
         "imports": [i.to_dict() for i in all_imports],
         "exports": [e.to_dict() for e in all_exports],
         "calls": [c.to_dict() for c in all_calls],
+        "relations": [r.to_dict() for r in sorted(all_relations, key=lambda r: (r.file_path, r.lineno, r.col_offset, r.kind, r.target))],
         "parse_errors": [e.to_dict() for e in all_errors],
     }
+
+    analysis_result["summary"]["relations_found"] = len(all_relations)
 
     if output_path is not None:
         out_p = Path(output_path).resolve()

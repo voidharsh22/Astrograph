@@ -27,10 +27,15 @@ class Symbol:
     language: str = "python"
     is_exported: bool = False
     local_variables: list[str] = field(default_factory=list)
+    # Package / module path (Java/Kotlin package, Rust module path). None for languages without one.
+    namespace: Optional[str] = None
+    # Kotlin extension receiver type or Rust impl target, when different from the lexical parent.
+    receiver_type: Optional[str] = None
+    end_col_offset: Optional[int] = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert symbol to dictionary suitable for JSON serialization."""
-        return {
+        data = {
             "id": self.id,
             "name": self.name,
             "qualified_name": self.qualified_name,
@@ -49,6 +54,11 @@ class Symbol:
             "is_exported": self.is_exported,
             "local_variables": self.local_variables,
         }
+        # Optional fields are only emitted when set so Python/JS/TS output is unchanged.
+        for key in ("namespace", "receiver_type", "end_col_offset"):
+            if getattr(self, key) is not None:
+                data[key] = getattr(self, key)
+        return data
 
 
 @dataclass
@@ -125,12 +135,16 @@ class Call:
     caller: Optional[str] = None
     caller_symbol_id: Optional[str] = None
     is_module_level: bool = True
-    call_kind: str = "function_call"  # "function_call", "method_call", "constructor_call"
+    call_kind: str = "function_call"  # "function_call", "method_call", "constructor_call", "macro_call"
     language: str = "python"
+    # Statically inferred receiver type name (simple or qualified as written) and argument count,
+    # used for method/overload resolution in Java, Kotlin and Rust.
+    receiver_type: Optional[str] = None
+    arg_count: Optional[int] = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert call expression to dictionary suitable for JSON serialization."""
-        return {
+        data = {
             "callee": self.callee,
             "callee_name": self.callee_name,
             "file_path": self.file_path,
@@ -140,6 +154,41 @@ class Call:
             "caller_symbol_id": self.caller_symbol_id,
             "is_module_level": self.is_module_level,
             "call_kind": self.call_kind,
+            "language": self.language,
+        }
+        for key in ("receiver_type", "arg_count"):
+            if getattr(self, key) is not None:
+                data[key] = getattr(self, key)
+        return data
+
+
+@dataclass
+class Relation:
+    """A type-level relationship found in source: inheritance or JSX component usage.
+
+    kind: "extends", "implements" or "renders". The source is a symbol (``source_symbol_id``)
+    or, for module-level usage, the file. ``target`` is the name as written in the source.
+    """
+
+    kind: str
+    target: str
+    file_path: str
+    lineno: int
+    col_offset: int
+    source_symbol_id: Optional[str] = None
+    language: str = "python"
+    # Type name as written when the source symbol is not known to the parser (Rust `impl Trait for Type`).
+    source_name: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source_name": self.source_name,
+            "kind": self.kind,
+            "target": self.target,
+            "file_path": self.file_path,
+            "lineno": self.lineno,
+            "col_offset": self.col_offset,
+            "source_symbol_id": self.source_symbol_id,
             "language": self.language,
         }
 
@@ -224,4 +273,5 @@ class FileParseResult:
     imports: list[Import] = field(default_factory=list)
     calls: list[Call] = field(default_factory=list)
     exports: list[Export] = field(default_factory=list)
+    relations: list[Relation] = field(default_factory=list)
     errors: list[ParseError] = field(default_factory=list)
